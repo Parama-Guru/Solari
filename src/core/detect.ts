@@ -25,7 +25,7 @@ const SIGNATURES: readonly Signature[] = [
   { offset: 0, bytes: [0xff, 0x57, 0x50, 0x43], format: 'WordPerfect document', family: 'office' },
   { offset: 0, bytes: [0x1a, 0x00, 0x00, 0x04], format: 'Lotus 1-2-3 worksheet', family: 'office' },
   { offset: 0, bytes: ascii('8BPS'), format: 'Photoshop document', family: 'raster' },
-  { offset: 0, bytes: ascii('%!PS'), format: 'PostScript or EPS', family: 'vector' },
+  { offset: 0, bytes: ascii('%!PS'), format: 'PostScript or EPS', family: 'postscript' },
   { offset: 0, bytes: [0x41, 0x43, 0x31, 0x30], format: 'AutoCAD drawing', family: 'vector' },
   { offset: 0, bytes: [0xd7, 0xcd, 0xc6, 0x9a], format: 'Windows Metafile', family: 'vector' },
   { offset: 40, bytes: ascii(' EMF'), format: 'Enhanced Metafile', family: 'vector' },
@@ -68,6 +68,18 @@ const ODF_MIMETYPES: Readonly<Record<string, string>> = {
   'application/vnd.oasis.opendocument.spreadsheet': 'OpenDocument Spreadsheet',
   'application/vnd.oasis.opendocument.presentation': 'OpenDocument Presentation',
   'application/vnd.oasis.opendocument.graphics': 'OpenDocument Drawing',
+  'application/vnd.oasis.opendocument.formula': 'OpenDocument Formula',
+  'application/vnd.oasis.opendocument.chart': 'OpenDocument Chart',
+  'application/vnd.oasis.opendocument.database': 'OpenDocument Database',
+  'application/vnd.oasis.opendocument.image': 'OpenDocument Image',
+  'application/vnd.oasis.opendocument.text-master': 'OpenDocument Master Document',
+  // LibreOffice writes this when a document came in as HTML, and it is easy to hit.
+  'application/vnd.oasis.opendocument.text-web': 'OpenDocument HTML Document',
+  'application/vnd.oasis.opendocument.text-template': 'OpenDocument Text Template',
+  'application/vnd.oasis.opendocument.spreadsheet-template': 'OpenDocument Spreadsheet Template',
+  'application/vnd.oasis.opendocument.presentation-template': 'OpenDocument Presentation Template',
+  'application/vnd.oasis.opendocument.graphics-template': 'OpenDocument Drawing Template',
+  'application/epub+zip': 'EPUB book',
 };
 
 const OOXML_BY_EXTENSION: Readonly<Record<string, string>> = {

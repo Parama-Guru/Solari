@@ -26,10 +26,20 @@ test('spreadsheets round-trip through ODS, documents through ODT', () => {
 });
 
 test('every chain ends in a fallback rather than giving up', () => {
-  for (const family of ['office', 'vector', 'raster', 'text', 'unknown'] as const) {
+  for (const family of ['office', 'vector', 'raster', 'postscript', 'text', 'unknown'] as const) {
     const plan = planFor(detection({ family }));
     assert.ok(plan.length >= 2, `${family} needs a fallback`);
   }
+});
+
+test('PostScript renders with Ghostscript and never through LibreOffice', () => {
+  const ids = planFor(detection({ family: 'postscript', format: 'PostScript or EPS', extensionHint: 'ps' }))
+    .map((s) => s.id);
+
+  assert.equal(ids[0], 'ps-ghostscript');
+  // LibreOffice has no PostScript renderer; it typesets the source, which renders
+  // pages of the wrong content and passes the "a page rendered" check.
+  assert.ok(!ids.some((id) => id.startsWith('soffice')), `LibreOffice must not appear: ${ids.join(', ')}`);
 });
 
 test('shell metacharacters in a filename cannot reach a command', () => {

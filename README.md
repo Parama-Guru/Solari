@@ -128,15 +128,27 @@ damages copies of them.
 
 | File | Detected as | Recovered | What worked | Pages | Time |
 | --- | --- | --- | --- | --- | --- |
-| `broken.pdf` | PDF | yes | Ghostscript PDF repair | 2 | 18.1s |
-| `budget.xls` | Excel 97-2003 workbook | yes | LibreOffice direct export | 1 | 15.7s |
+| `broken.pdf` | PDF | yes | Ghostscript PDF repair | 2 | 19.1s |
+| `budget.ods` | OpenDocument Spreadsheet | yes | LibreOffice direct export | 1 | 16.0s |
+| `budget.xls` | Excel 97-2003 workbook | yes | LibreOffice direct export | 1 | 15.9s |
+| `budget.xlsx` | Excel workbook | yes | LibreOffice direct export | 1 | 16.1s |
 | `good.pdf` | PDF | yes | Verified as-is | 2 | 15.7s |
-| `logo.svg` | SVG image | yes | Inkscape vector export | 1 | 14.8s |
-| `notes.rtf` | Rich Text Format | yes | LibreOffice direct export | 1 | 17.0s |
-| `report.doc` | Word 97-2003 document | yes | LibreOffice direct export | 1 | 15.5s |
-| `truncated.doc` | Word 97-2003 document | partial | Raw text salvage | 1 | 19.4s |
+| `logo.emf` | Enhanced Metafile | yes | Inkscape vector export | 1 | 15.3s |
+| `logo.eps` | EPS | yes | Ghostscript PostScript render | 1 | 15.0s |
+| `logo.odg` | OpenDocument Drawing | yes | LibreOffice direct export | 1 | 18.8s |
+| `logo.png` | PNG image | yes | ImageMagick raster export | 1 | 15.4s |
+| `logo.ps` | PostScript | yes | Ghostscript PostScript render | 1 | 15.2s |
+| `logo.svg` | SVG image | yes | Inkscape vector export | 1 | 16.7s |
+| `logo.wmf` | Windows Metafile | yes | Inkscape vector export | 1 | 15.2s |
+| `notes.rtf` | Rich Text Format | yes | LibreOffice direct export | 1 | 15.5s |
+| `report.doc` | Word 97-2003 document | yes | LibreOffice direct export | 1 | 15.9s |
+| `report.docx` | Word document | yes | LibreOffice direct export | 1 | 15.8s |
+| `report.odt` | OpenDocument Text | yes | LibreOffice direct export | 1 | 16.0s |
+| `truncated.doc` | Word 97-2003 document | partial | Raw text salvage | 1 | 19.7s |
 
-Two results are worth calling out.
+**17 of 17 recovered**, every one by the strategy you would want it to use.
+
+Three results are worth calling out.
 
 **`broken.pdf`** had its cross-reference table destroyed. Copying it produced a PDF that
 rendered zero pages, so that attempt was recorded as a failure and the chain fell through to
@@ -147,22 +159,33 @@ original. This is why success requires a rendered page rather than merely a file
 refused it, and raw salvage recovered the readable text, including the document title. It is
 reported as *partly recovered*, because claiming otherwise would be a lie about the layout.
 
+**`logo.ps`** caught a second false success, and a subtler one. It reported *recovered, 5
+pages* — but the pages were a typeset listing of the PostScript **source code**, because
+LibreOffice has no PostScript renderer and quietly imported the file as plain text. Every
+automated check passed: a PDF existed, it rendered pages, the pages were not blank.
+
+Requiring a rendered page is necessary but not sufficient, because a converter can render
+the *wrong thing*. I only caught it because 13,164 characters of "text" from a logo made no
+sense, and looking at the image confirmed it. PostScript now has its own family that goes to
+Ghostscript first and never reaches LibreOffice, which returns the actual drawing: 1 page,
+9 characters, matching the SVG it was made from.
+
 Other measurements: provisioning the template takes about **1.6 minutes** once, and a rescue
 takes roughly **15–19s** end to end including boot, conversion, rendering and teardown.
 
 
 ## Where the time actually goes
 
-Averaged over the seven fixtures above, from the same `npm run e2e` run:
+Averaged over the seventeen fixtures above, from the same `npm run e2e` run:
 
 | Stage | Mean per rescue | Share |
 | --- | --- | --- |
-| Boot the VM | 11.1s | 67% |
-| Upload the file | 1.1s | 7% |
-| Run converters | 2.1s | 13% |
-| Download results | 2.0s | 12% |
-| Destroy the VM | 0.2s | 1% |
-| **Total** | **16.6s** | |
+| Boot the VM | 11.5s | 70% |
+| Upload the file | 0.6s | 3% |
+| Run converters | 1.7s | 10% |
+| Download results | 1.6s | 10% |
+| Destroy the VM | 0.2s | 2% |
+| **Total** | **16.3s** | |
 
 I had assumed conversion was the expensive part and spent an optimisation pass collapsing six
 guest round trips into one. It bought about a second. Measuring properly showed why: the
@@ -192,7 +215,7 @@ code. `read_unopenable_files` puts several files on one VM:
 
 | Five files | Time |
 | --- | --- |
-| Five separate rescues | 83.0s (5 × the 16.6s measured mean) |
+| Five separate rescues | ~82s (5 × the ~16.5s measured mean) |
 | One batched call | **31.8s** |
 
 Same 5 of 5 recovered, one 11.7s boot instead of five, and 6.4s per file instead of 16.6s.
