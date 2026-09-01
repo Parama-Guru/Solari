@@ -18,6 +18,16 @@ export type Sandbox = {
   expiresAt: string;
 };
 
+export type SandboxRecord = {
+  sandboxId: string;
+  kind?: string;
+  state?: string;
+  template?: string;
+  createdAt?: string;
+  expiresAt?: string;
+  metadata?: Record<string, string>;
+};
+
 export type ExecResult = {
   exitCode: number;
   stdout: string;
@@ -177,6 +187,29 @@ export class SolariClient {
 
   async destroy(id: string): Promise<void> {
     await this.#request(`/sandboxes/${encodeId(id)}`, { method: 'DELETE' }, true);
+  }
+
+  /** Lists this org's sandboxes, following cursors so nothing is missed. */
+  async listSandboxes(filter: { state?: string; metadata?: Record<string, string> } = {}): Promise<SandboxRecord[]> {
+    const found: SandboxRecord[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const params = new URLSearchParams();
+      if (filter.state) params.set('state', filter.state);
+      for (const [key, value] of Object.entries(filter.metadata ?? {})) params.set(`metadata.${key}`, value);
+      if (cursor) params.set('cursor', cursor);
+
+      const page = await this.#request<{ sandboxes?: SandboxRecord[]; nextCursor?: string }>(
+        `/sandboxes?${params.toString()}`,
+        { method: 'GET' },
+        true,
+      );
+      found.push(...(page.sandboxes ?? []));
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    return found;
   }
 }
 

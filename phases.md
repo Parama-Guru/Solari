@@ -44,21 +44,26 @@ Make it a link a stranger can click.
 
 ---
 
-## P3 — Agent surface `[ ]`
+## P3 — Agent surface `[x]`
 
 Let an AI agent call this instead of parsing untrusted files itself.
 
-- **Done when:** an agent reads a file it could not previously parse, via one tool call.
-- **Why it matters:** this is the phase that makes the project relevant to Solari's market.
+- **Done when:** an agent reads a file it could not previously parse, via one tool call. *Passed.*
+- **Evidence:** MCP server over stdio; a `.doc` truncated to 55% returned its text in 22.1s
+  with an explicit warning that layout was lost. 6 protocol tests against a spawned subprocess.
+- **Why it matters:** this is what makes the project relevant to Solari's market.
 
-### P3.1 Improve `[ ]`
-- Ship an MCP server so it drops into Claude, Cursor, and similar clients.
-- Return structured text plus per-page images in one response.
-- Publish as an npm package so installation is a single command.
+### P3.1 Improve `[~]`
+- [x] MCP server that drops into Claude, Cursor and similar clients.
+- [x] `identify_file` runs locally and starts no machine, so cheap checks stay free.
+- [x] Optional first-page image for vision-capable agents.
+- [ ] Publish to npm so installation is one command.
+- [ ] Batch tool that accepts several files in one call.
 
-### P3.2 Issues `[ ]`
-- Agent traffic is bursty and will hit the concurrency cap immediately.
-- Needs per-caller auth once it is not just a human upload form.
+### P3.2 Issues `[~]`
+- [x] Fixed: the server exited on stdin close while a tool call was still running.
+- [ ] Agent traffic is bursty and will hit the concurrency cap immediately.
+- [ ] Needs per-caller auth once it is not just a local stdio server.
 
 ---
 
@@ -83,9 +88,10 @@ Handle the formats people actually get stuck on.
 
 - **Done when:** ten additional real-world formats verified with fixtures.
 
-### P5.1 Improve `[ ]`
-- Add WordPerfect, Lotus, Works, AppleWorks, QuarkXPress, Visio, Publisher.
-- Distinguish OLE2 subtypes by reading the directory stream, not the extension.
+### P5.1 Improve `[~]`
+- [x] OLE2 subtypes read from internal stream names, so a renamed `.doc` still resolves
+      to Word with high confidence instead of being guessed from its extension.
+- [ ] Add WordPerfect, Lotus, Works, AppleWorks, QuarkXPress fixtures and verify them.
 
 ### P5.2 Issues `[ ]`
 - Genuine `.pub` and `.cdr` fixtures are hard to generate; they must be sourced.
@@ -99,13 +105,16 @@ Predictable behaviour under failure and load.
 
 - **Done when:** a chaos run leaves zero orphaned VMs and no unbounded spend.
 
-### P6.1 Improve `[ ]`
-- Sweep stray sandboxes on a schedule, keyed by the `app: openable` metadata.
-- Track cost per rescue and expose it on the health endpoint.
+### P6.1 Improve `[~]`
+- [x] `npm run sweep` destroys stray sandboxes tagged `app: openable`, with a dry-run mode.
+      Verified by creating a VM, listing it, sweeping it, and confirming none remain.
+- [ ] Run the sweep on a schedule rather than by hand.
+- [ ] Track cost per rescue and expose it on the health endpoint.
 
-### P6.2 Issues `[ ]`
-- Teardown failure currently only logs; the VM leaks until its idle timeout.
-- No global spend ceiling.
+### P6.2 Issues `[~]`
+- [x] Mitigated: a leaked VM is now recoverable by the sweeper rather than waiting for idle timeout.
+- [ ] Teardown failure still only logs at the point of failure.
+- [ ] No global spend ceiling.
 
 ---
 
