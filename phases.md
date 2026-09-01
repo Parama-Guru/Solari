@@ -177,19 +177,25 @@ Numbers a reviewer can reproduce.
 
 ---
 
-## P9 — Launch `[ ]`
+## P9 — Launch `[~]`
 
 Ship it publicly and tag the challenge.
 
 - **Done when:** the post is live, tagging Harry Chow and Solari, linking a working demo.
+- **Drafted:** `launch.md` holds a LinkedIn post, an X thread and per-community outreach,
+  with every number checked against a real run. Posting is a human action and is not done.
 
-### P9.1 Improve `[ ]`
-- Lead with the corrupt-PDF recovery; it is the most legible proof.
-- Include the false-success bug and its fix, which shows judgment.
+### P9.1 Improve `[~]`
+- [x] Leads with the corrupt-PDF recovery, the most legible proof.
+- [x] Includes the false-success bug and the wrong performance assumption, both with the
+      measurement that corrected them.
+- [ ] Record a short screen capture; the bug story is far better as video than prose.
 
-### P9.2 Issues `[ ]`
-- Launching before P2 means no demo link, which wastes the post.
-- Cookbook fork and PR still outstanding; the brief asked for a fork.
+### P9.2 Issues `[~]`
+- [x] No longer blocked on P2: `npx` is the demo, so the post has something to link.
+- [ ] Cookbook fork and PR still outstanding. No GitHub CLI on this machine, and a PR
+      against someone else's repo should be a deliberate click rather than an automated one.
+- [ ] The API key used in development must be rotated before this goes public.
 
 ---
 
