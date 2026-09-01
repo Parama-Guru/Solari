@@ -14,6 +14,7 @@
     "provision": "node src/scripts/provision.ts",
     "fixtures": "node src/scripts/make-fixtures.ts",
     "e2e": "node src/scripts/e2e.ts",
+    "mcp": "node src/mcp/server.ts",
     "dev": "node src/server/main.ts",
     "start": "node src/server/main.ts"
   },

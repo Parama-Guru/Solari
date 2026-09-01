@@ -62,8 +62,7 @@ Let an AI agent call this instead of parsing untrusted files itself.
 
 ---
 
-## P4 — First real users `[ ]`
-
+C
 Three people who are not you use it and say what happened.
 
 - **Done when:** three unrelated users complete a rescue and give feedback.
