@@ -1,0 +1,36 @@
+name: Sweep orphaned sandboxes
+
+# A rescue destroys its own VM, but a crashed process or a lost network can leave one
+# running and billing. This is the backstop for that case.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List what would be destroyed without destroying it'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Older than 30 minutes, which is well past the longest rescue.
+      - run: node src/scripts/sweep.ts 30 ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          SOLARI_API_KEY: ${{ secrets.SOLARI_API_KEY }}

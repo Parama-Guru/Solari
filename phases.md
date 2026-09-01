@@ -132,7 +132,10 @@ Predictable behaviour under failure and load.
       Verified by creating a VM, listing it, sweeping it, and confirming none remain.
 - [x] `/healthz` reports rescues, recoveries and VM seconds per rescue. VM seconds is the
       unit Solari bills, so no dollar figure is invented.
-- [ ] Run the sweep on a schedule rather than by hand.
+- [x] Sweep runs on a schedule: `.github/workflows/sweep.yml` every six hours, plus a manual
+      dry-run trigger. Needs `SOLARI_API_KEY` set as a repository secret to do anything.
+- [x] CI runs typecheck, tests and the distribution build on every push, with no API key,
+      so nothing that reaches `main` can depend on a live account.
 
 ### P6.2 Issues `[~]`
 - [x] Mitigated: a leaked VM is now recoverable by the sweeper rather than waiting for idle timeout.
