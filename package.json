@@ -4,6 +4,9 @@
   "private": true,
   "description": "Recover files that no longer open, inside a disposable Solari machine.",
   "type": "module",
+  "bin": {
+    "openable-mcp": "src/mcp/server.ts"
+  },
   "engines": {
     "node": ">=22.18.0"
   },

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { readFileSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { loadConfig } from '../config.ts';
