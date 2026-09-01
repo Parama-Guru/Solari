@@ -47,10 +47,29 @@ soffice $FLAGS --convert-to 'rtf:Rich Text Format' --outdir . source.html
 soffice $FLAGS --convert-to pdf --outdir . source.html
 soffice $FLAGS --convert-to 'xls:MS Excel 97' --outdir . source.csv
 
+# Ten more formats people genuinely get stuck on. MS Word 95/6.0, Excel 5.0/95 and
+# PowerPoint 97 export filters are absent from this build, so they are not attempted.
+soffice $FLAGS --convert-to 'docx:MS Word 2007 XML' --outdir . source.html
+soffice $FLAGS --convert-to 'xlsx:Calc MS Excel 2007 XML' --outdir . source.csv
+soffice $FLAGS --convert-to 'ods:calc8' --outdir . source.csv
+soffice $FLAGS --convert-to 'odg:draw8' --outdir . logo.svg
+soffice $FLAGS --convert-to 'wmf:draw_wmf_Export' --outdir . logo.svg
+soffice $FLAGS --convert-to 'emf:draw_emf_Export' --outdir . logo.svg
+soffice $FLAGS --convert-to 'eps:draw_eps_Export' --outdir . logo.svg
+inkscape --export-type=ps --export-filename=logo.ps logo.svg >/dev/null 2>&1
+inkscape --export-type=png --export-filename=logo.png logo.svg >/dev/null 2>&1
+
 mv source.doc report.doc
 mv source.rtf notes.rtf
 mv source.pdf good.pdf
 mv source.xls budget.xls
+mv source.docx report.docx
+mv source.xlsx budget.xlsx
+mv source.ods budget.ods
+
+# ODT must come from the Word file, not the HTML. Importing HTML puts LibreOffice into
+# Writer/Web, which writes a text-web mimetype rather than a real OpenDocument Text.
+soffice $FLAGS --convert-to 'odt:writer8' --outdir . report.doc
 
 # A file cut short mid-write, which is what most "it won't open" files really are.
 SIZE=$(stat -c%s report.doc)
@@ -63,7 +82,24 @@ head -c $((PSIZE - 400)) good.pdf > broken.pdf
 ls -l
 `;
 
-const WANTED = ['report.doc', 'budget.xls', 'notes.rtf', 'good.pdf', 'truncated.doc', 'broken.pdf'];
+const WANTED = [
+  'report.doc',
+  'budget.xls',
+  'notes.rtf',
+  'good.pdf',
+  'truncated.doc',
+  'broken.pdf',
+  'report.docx',
+  'report.odt',
+  'budget.xlsx',
+  'budget.ods',
+  'logo.odg',
+  'logo.wmf',
+  'logo.emf',
+  'logo.eps',
+  'logo.ps',
+  'logo.png',
+];
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -80,6 +116,7 @@ async function main(): Promise<void> {
       const encoder = new TextEncoder();
       await client.upload(id, '/work/fx/source.html', encoder.encode(SOURCE_HTML));
       await client.upload(id, '/work/fx/source.csv', encoder.encode(SOURCE_CSV));
+      await client.upload(id, '/work/fx/logo.svg', encoder.encode(LOGO_SVG));
       await client.upload(id, '/work/fx/build.sh', encoder.encode(BUILD_SCRIPT));
 
       const build = await client.exec(id, 'sh', ['-c', 'sh /work/fx/build.sh'], 5 * MINUTE);

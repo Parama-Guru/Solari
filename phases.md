@@ -104,20 +104,38 @@ Three people who are not you use it and say what happened.
 
 ---
 
-## P5 — Format coverage `[ ]`
+## P5 — Format coverage `[x]`
 
 Handle the formats people actually get stuck on.
 
-- **Done when:** ten additional real-world formats verified with fixtures.
+- **Done when:** ten additional real-world formats verified with fixtures. *Passed 10/10.*
+- **Evidence:** `.docx`, `.xlsx`, `.odt`, `.ods`, `.odg`, `.wmf`, `.emf`, `.eps`, `.ps`, `.png`
+  added to the corpus and recovered end to end on live Solari. 17 of 17 fixtures now recover,
+  each by the strategy you would want it to use.
 
 ### P5.1 Improve `[~]`
 - [x] OLE2 subtypes read from internal stream names, so a renamed `.doc` still resolves
       to Word with high confidence instead of being guessed from its extension.
+- [x] Ten more formats generated as genuine files and verified, covering OOXML, ODF, both
+      metafile formats, PostScript and raster. The raster chain had never been exercised by
+      a fixture before this.
+- [x] More ODF mimetypes recognised, including `text-web`, the templates, and EPUB. A real
+      `.odt` was being reported as an unknown ZIP.
 - [ ] Add WordPerfect, Lotus, Works, AppleWorks, QuarkXPress fixtures and verify them.
 
-### P5.2 Issues `[ ]`
-- Genuine `.pub` and `.cdr` fixtures are hard to generate; they must be sourced.
-- Every extra converter enlarges the template and slows provisioning.
+### P5.2 Issues `[~]`
+- [x] Learned: LibreOffice ignores the requested filter when the source dictates otherwise.
+      Asking for `odp:impress8` from HTML produced a Writer/Web file with an `.odp` name, so
+      the first "presentation" fixture was not a presentation at all. Fixtures are now checked
+      against the detector rather than trusted because the conversion exited zero.
+- [x] Found and fixed: `.ps` reported *recovered, 5 pages* that were a listing of its own
+      source code. LibreOffice has no PostScript renderer and imports it as text. PostScript
+      now has its own family, goes to Ghostscript, and never reaches LibreOffice.
+- [ ] This build has no MS Word 95/6.0, Excel 5.0/95 or PowerPoint 97 **export** filters, so
+      those fixtures cannot be generated here and must be sourced.
+- [ ] Genuine `.pub` and `.cdr` fixtures are hard to generate; they must be sourced.
+- [ ] Every extra converter enlarges the template and slows provisioning, which is now known
+      to be the dominant cost.
 
 ---
 

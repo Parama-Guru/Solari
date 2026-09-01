@@ -81,6 +81,8 @@ function nextStepFor(detection: Detection): string {
       return 'The image data could not be decoded, which usually means the file is incomplete.';
     case 'pdf':
       return 'The PDF structure is damaged beyond what Ghostscript could rebuild.';
+    case 'postscript':
+      return 'Ghostscript could not render this PostScript, which usually means the file is truncated.';
     default:
       return 'The bytes did not match any format we can open, and no readable text survived inside them.';
   }

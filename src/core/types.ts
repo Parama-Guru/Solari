@@ -4,6 +4,7 @@ export type FormatFamily =
   | 'vector'
   | 'raster'
   | 'pdf'
+  | 'postscript'
   | 'text'
   | 'unknown';
 

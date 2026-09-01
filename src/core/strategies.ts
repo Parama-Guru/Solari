@@ -125,6 +125,20 @@ const repairPdf: Strategy = {
   }),
 };
 
+/**
+ * The only real PostScript renderer here. LibreOffice will happily "import" a .ps by
+ * typesetting its source code, which renders pages full of the wrong thing, so this runs first.
+ */
+const postscriptToPdf: Strategy = {
+  id: 'ps-ghostscript',
+  label: 'Ghostscript PostScript render',
+  build: (input, outDir): Command => ({
+    cmd: 'sh',
+    args: ['-c', `gs -o ${outDir}/${PDF_NAME} -sDEVICE=pdfwrite -dEPSCrop -dPDFSTOPONERROR=false ${input}`],
+    timeoutMs: 4 * MINUTE,
+  }),
+};
+
 const OFFICE_CHAIN: readonly Strategy[] = [
   sofficeDirect('soffice-direct', 'LibreOffice direct export'),
   sofficeTwoHop('odt'),
@@ -147,6 +161,9 @@ const RASTER_CHAIN: readonly Strategy[] = [imagemagickExport, sofficeDirect('sof
 
 const PDF_CHAIN: readonly Strategy[] = [passthroughPdf, repairPdf];
 
+// No LibreOffice fallback: it produces a source-code listing that looks like a success.
+const POSTSCRIPT_CHAIN: readonly Strategy[] = [postscriptToPdf, inkscapeExport, imagemagickExport];
+
 const UNKNOWN_CHAIN: readonly Strategy[] = [
   sofficeDirect('soffice-guess', 'LibreOffice format guess'),
   imagemagickExport,
@@ -166,6 +183,8 @@ export function planFor(detection: Detection): Strategy[] {
   switch (detection.family) {
     case 'pdf':
       return [...PDF_CHAIN];
+    case 'postscript':
+      return [...POSTSCRIPT_CHAIN];
     case 'vector':
       return [...VECTOR_CHAIN];
     case 'raster':
