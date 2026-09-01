@@ -30,15 +30,19 @@ Open a dead file on a disposable machine and prove it opened.
 
 ---
 
-## P2 — Public deployment `[~]`
+## P2 — Public web demo `[~]`
 
-Make it a link a stranger can click.
+A link a stranger can click, for people who are not running an agent.
 
 - **Done when:** a URL works from a phone with no install, signup, or key.
-- **Ready:** `Dockerfile` and `fly.toml` are written; the image has zero runtime
-  dependencies. Unverified locally because Docker is not installed on this machine,
-  so it is validated on first remote build.
-- **Blocked on:** which host to use, and an account on it.
+- **No longer blocking:** the agent path needs no deployment at all. `npx -y
+  github:Parama-Guru/Solari` runs the MCP server on the user's own machine with their
+  own key, verified working.
+- **Ready:** `Dockerfile` and `fly.toml` are written. Unverified locally because Docker
+  is not installed here, so it validates on first remote build.
+- **Deliberate tradeoff:** a public upload form runs on *our* API key, so strangers would
+  consume our credits and occupy the single free-tier VM slot. Needs rate limiting and a
+  paid plan before it is safe to publish.
 
 ### P2.1 Improve `[ ]`
 - Rate limit by IP so one person cannot occupy the single VM slot.
@@ -74,18 +78,21 @@ Let an AI agent call this instead of parsing untrusted files itself.
 
 ---
 
-C
+## P4 — First real users `[ ]`
+
 Three people who are not you use it and say what happened.
 
 - **Done when:** three unrelated users complete a rescue and give feedback.
+- **Unblocked:** no longer waits on deployment, since agent users install it themselves
+  with `npx` and their own key.
 
 ### P4.1 Improve `[ ]`
 - Post where the pain already is: r/datarecovery, r/libreoffice, genealogy forums.
-- Approach agent developers directly once P3 exists.
+- Approach MCP and agent developers directly; they are the repeat users.
 
 ### P4.2 Issues `[ ]`
-- Low natural frequency: people search for this only when stuck.
-- Trust barrier: uploading a personal file to an unknown site is a real ask.
+- Low natural frequency for the human case: people search for this only when stuck.
+- Agent users must sign up to Solari first, which is friction for them and a signup for Solari.
 
 ---
 
@@ -188,5 +195,5 @@ Respond to what actually happens.
 
 ## Order
 
-P2 → P3 → P4 → P9. Deploy first so there is a link, add the agent surface for
-relevance, get users, then launch. P5 to P8 run in parallel as time allows.
+P3 → P4 → P9, with P2 optional. The agent path needs no deployment, so users and
+launch no longer wait on hosting. P5 to P8 run in parallel as time allows.

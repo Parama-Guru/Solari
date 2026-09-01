@@ -79,17 +79,22 @@ PDF whose structure is broken. The usual workaround is to parse untrusted bytes 
 agent's own process. Openable ships an MCP server so the agent can hand the file to a
 disposable machine instead.
 
+Nothing needs deploying and nothing needs installing. Add this to your MCP client:
+
 ```json
 {
   "mcpServers": {
     "openable": {
-      "command": "node",
-      "args": ["/absolute/path/to/src/mcp/server.ts"],
+      "command": "npx",
+      "args": ["-y", "github:Parama-Guru/Solari"],
       "env": { "SOLARI_API_KEY": "slr_live_..." }
     }
   }
 }
 ```
+
+You supply your own Solari key, so the machine that opens your file is yours and nobody
+else's quota is involved. Requires Node 22.18 or newer.
 
 Two tools are exposed:
 
