@@ -44,6 +44,35 @@ test('still routes an OLE2 document with no usable extension', () => {
   assert.equal(result.confidence, 'low');
 });
 
+function makeOle2(streamName: string): Uint8Array {
+  const buf = new Uint8Array(768);
+  buf.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1], 0);
+  for (let i = 0; i < streamName.length; i++) {
+    const code = streamName.charCodeAt(i);
+    buf[512 + i * 2] = code & 0xff;
+    buf[512 + i * 2 + 1] = code >> 8;
+  }
+  return buf;
+}
+
+test('names an OLE2 document from its internal stream, ignoring the extension', () => {
+  const result = detect(makeOle2('WordDocument'), 'holiday-photos.xyz');
+  assert.equal(result.format, 'Microsoft Word 97-2003 document');
+  assert.equal(result.confidence, 'high');
+  assert.match(result.evidence, /WordDocument/);
+});
+
+test('distinguishes Excel and Visio inside OLE2 without any extension', () => {
+  assert.equal(detect(makeOle2('Workbook'), 'nameless').format, 'Microsoft Excel 97-2003 workbook');
+  assert.equal(detect(makeOle2('VisioDocument'), 'nameless').format, 'Microsoft Visio drawing');
+});
+
+test('prefers the internal stream over a contradicting extension', () => {
+  const result = detect(makeOle2('PowerPoint Document'), 'budget.xls');
+  assert.equal(result.format, 'Microsoft PowerPoint 97-2003 presentation');
+  assert.equal(result.extensionHint, 'xls');
+});
+
 test('reads the ODF mimetype out of the ZIP wrapper', () => {
   const zip = makeZip('mimetype', 'application/vnd.oasis.opendocument.spreadsheet', true);
   const result = detect(zip, 'budget.ods');

@@ -49,6 +49,20 @@ const OLE2_BY_EXTENSION: Readonly<Record<string, string>> = {
   mpp: 'Microsoft Project plan',
 };
 
+/**
+ * Named streams inside an OLE2 container, which say what the document really is.
+ * Ordered so the more specific marker wins.
+ */
+const OLE2_STREAM_MARKERS: ReadonlyArray<readonly [string, string]> = [
+  ['PowerPoint Document', 'Microsoft PowerPoint 97-2003 presentation'],
+  ['WordDocument', 'Microsoft Word 97-2003 document'],
+  ['VisioDocument', 'Microsoft Visio drawing'],
+  ['Quill', 'Microsoft Publisher document'],
+  ['__substg1.0_', 'Outlook message'],
+  ['Workbook', 'Microsoft Excel 97-2003 workbook'],
+  ['Book', 'Microsoft Excel 5.0 workbook'],
+];
+
 const ODF_MIMETYPES: Readonly<Record<string, string>> = {
   'application/vnd.oasis.opendocument.text': 'OpenDocument Text',
   'application/vnd.oasis.opendocument.spreadsheet': 'OpenDocument Spreadsheet',
@@ -75,6 +89,28 @@ function matchesAt(buf: Uint8Array, sig: Signature): boolean {
 const u16 = (buf: Uint8Array, at: number): number => buf[at]! | (buf[at + 1]! << 8);
 const u32 = (buf: Uint8Array, at: number): number =>
   (buf[at]! | (buf[at + 1]! << 8) | (buf[at + 2]! << 16) | (buf[at + 3]! << 24)) >>> 0;
+
+function utf16le(text: string): Uint8Array {
+  const out = new Uint8Array(text.length * 2);
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    out[i * 2] = code & 0xff;
+    out[i * 2 + 1] = code >> 8;
+  }
+  return out;
+}
+
+function indexOfBytes(haystack: Uint8Array, needle: Uint8Array): number {
+  if (needle.length === 0 || haystack.length < needle.length) return -1;
+  const last = haystack.length - needle.length;
+  outer: for (let i = 0; i <= last; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
 
 type ZipEntry = { name: string; storedText: string | null };
 
@@ -158,16 +194,28 @@ function refineZip(buf: Uint8Array, ext: string | null): Detection {
   };
 }
 
-function refineOle2(ext: string | null): Detection {
+function refineOle2(buf: Uint8Array, ext: string | null): Detection {
+  const base = { container: 'ole2', extensionHint: ext, family: 'office' } as const;
+
+  // Directory entry names are UTF-16LE, so the marker is searched in that encoding.
+  for (const [stream, label] of OLE2_STREAM_MARKERS) {
+    if (indexOfBytes(buf, utf16le(stream)) !== -1) {
+      return {
+        ...base,
+        format: label,
+        confidence: 'high',
+        evidence: `OLE2 container holding a "${stream}" stream.`,
+      };
+    }
+  }
+
   const label = ext ? OLE2_BY_EXTENSION[ext] : undefined;
   return {
-    container: 'ole2',
-    extensionHint: ext,
-    family: 'office',
+    ...base,
     format: label ?? 'OLE2 compound document',
     confidence: label ? 'medium' : 'low',
     evidence: label
-      ? `OLE2 compound header, narrowed to ${label} by the .${ext} extension.`
+      ? `OLE2 compound header with no readable stream directory, narrowed to ${label} by the .${ext} extension.`
       : 'OLE2 compound header. The exact application is decided by the converter.',
   };
 }
@@ -215,7 +263,7 @@ export function detect(buf: Uint8Array, filename: string): Detection {
   for (const sig of SIGNATURES) {
     if (!matchesAt(buf, sig)) continue;
     if (sig.container === 'zip') return refineZip(buf, ext);
-    if (sig.container === 'ole2') return refineOle2(ext);
+    if (sig.container === 'ole2') return refineOle2(buf, ext);
     return {
       container: sig.container ?? null,
       extensionHint: ext,
