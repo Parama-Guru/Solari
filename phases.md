@@ -18,14 +18,20 @@ Open a dead file on a disposable machine and prove it opened.
 ### P1.1 Improve `[~]`
 - [x] Collapsed six guest calls per attempt into one. Measured gain was only ~1s
       (17.9s → 16.9s average), which rules out round-trip latency as the bottleneck.
-- [ ] Profile where the remaining ~16s actually goes before optimising further.
-      Suspects: VM create, the awaited destroy, and file upload/download.
-- [ ] Stream progress to the browser; a 16s wait needs feedback more than it needs speed.
+- [x] Profiled it. Boot is **67% of wall clock** (11.1s of 16.6s); the converters are 13%.
+      Cause isolated by timing three cold boots of each template: `base` boots in 0.5s,
+      ours in 11.1s. The pre-warmed toolchain is the cost. Further work on the conversion
+      code cannot pay off, so this line of optimisation is closed.
+- [ ] Stream progress to the browser. Since boot dominates and is not ours to speed up,
+      feedback is worth more than latency work.
+- [ ] Trial a slimmer template; the only lever that keeps the fresh-VM-per-file guarantee.
+      A warm pool would be faster but trades the guarantee away.
 - [ ] Add OCR so scanned documents return text, not just page images.
 
 ### P1.2 Issues `[~]`
 - [x] Mitigated: `magick` is absent on Debian 12, and the chain falls back to `convert`.
-- [ ] Fixed one VM per rescue costs ~16s even for a 300-byte SVG.
+- [x] Explained: one VM per rescue costs ~16s even for a 300-byte SVG because the
+      template takes 11.1s to boot regardless of input size.
 - [ ] Page images capped at 8, with no way to request the rest.
 
 ---
@@ -122,8 +128,9 @@ Predictable behaviour under failure and load.
 ### P6.1 Improve `[~]`
 - [x] `npm run sweep` destroys stray sandboxes tagged `app: openable`, with a dry-run mode.
       Verified by creating a VM, listing it, sweeping it, and confirming none remain.
+- [x] `/healthz` reports rescues, recoveries and VM seconds per rescue. VM seconds is the
+      unit Solari bills, so no dollar figure is invented.
 - [ ] Run the sweep on a schedule rather than by hand.
-- [ ] Track cost per rescue and expose it on the health endpoint.
 
 ### P6.2 Issues `[~]`
 - [x] Mitigated: a leaked VM is now recoverable by the sweeper rather than waiting for idle timeout.
@@ -132,15 +139,17 @@ Predictable behaviour under failure and load.
 
 ---
 
-## P7 — Trust `[ ]`
+## P7 — Trust `[~]`
 
 Make the privacy claim checkable rather than merely stated.
 
 - **Done when:** the deletion guarantee is demonstrable from outside.
 
-### P7.1 Improve `[ ]`
-- Show the VM id and its destruction timestamp in the result.
-- Offer a no-retention mode that streams the PDF and stores nothing.
+### P7.1 Improve `[~]`
+- [x] Every result names the machine that held the file and the timestamp it was destroyed,
+      in the web UI and in the MCP tool output. A failed teardown says so instead of going
+      quiet. Verified across a 7-fixture run: 7/7 reported destroyed, 0 VMs left alive.
+- [ ] Offer a no-retention mode that streams the PDF and stores nothing.
 
 ### P7.2 Issues `[ ]`
 - Results sit in server memory for 30 minutes, which is longer than some users want.

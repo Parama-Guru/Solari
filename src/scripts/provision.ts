@@ -122,7 +122,7 @@ async function main(): Promise<void> {
   const client = new SolariClient({ apiKey: config.apiKey, baseUrl: config.baseUrl });
   const started = Date.now();
 
-  const templateId = await withSandbox(
+  const { value: templateId } = await withSandbox(
     client,
     { template: 'base', kind: 'sandbox', timeoutMs: 60 * MINUTE, metadata: { app: 'openable', role: 'provision' } },
     async (sandbox) => {

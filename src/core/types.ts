@@ -49,6 +49,36 @@ export type Attempt = {
   durationMs: number;
 };
 
+/**
+ * Where the wall clock actually went. Present so optimisation targets are
+ * measured rather than guessed, and so a slow rescue can be explained.
+ */
+export type Timings = {
+  /** Booting the disposable machine. */
+  createMs: number;
+  /** Sending the damaged file into it. */
+  uploadMs: number;
+  /** Running the converter chain, summed across attempts. */
+  attemptsMs: number;
+  /** Pulling the PDF, page images and text back out. */
+  downloadMs: number;
+  /** Destroying the machine, which we wait for rather than fire and forget. */
+  destroyMs: number;
+};
+
+/**
+ * Evidence for the deletion claim. The machine that held the file is named, and
+ * its destruction is timestamped, so the guarantee can be checked from outside
+ * instead of merely asserted.
+ */
+export type VmRecord = {
+  sandboxId: string;
+  createdAt: string;
+  /** Null only when destruction failed; the sweeper is then the backstop. */
+  destroyedAt: string | null;
+  destroyed: boolean;
+};
+
 export type RescueOutputs = {
   /** Guest path of the recovered PDF, when one was produced. */
   pdfPath: string | null;
@@ -72,4 +102,6 @@ export type RescueReport = {
   /** Set when nothing worked, explaining what a human would need to do next. */
   nextStep: string | null;
   totalMs: number;
+  timings: Timings;
+  vm: VmRecord;
 };
