@@ -129,6 +129,11 @@ async function send(file) {
 function render(data) {
   const r = data.report;
   const seconds = (r.totalMs / 1000).toFixed(1);
+  const t = r.timings;
+  const secs = (ms) => (ms / 1000).toFixed(1) + 's';
+  const destroyed = r.vm.destroyed
+    ? new Date(r.vm.destroyedAt).toLocaleTimeString() + ' \u2014 your file went with it'
+    : 'Destruction failed. The sweeper removes it as a backstop.';
 
   const attempts = r.attempts.map((a) => `
     <li>
@@ -171,6 +176,15 @@ function render(data) {
 
       <h2>What was tried</h2>
       <ol class="attempts">${attempts}</ol>
+
+      <h2>The machine that opened it</h2>
+      <dl>
+        <dt>Machine</dt><dd>${esc(r.vm.sandboxId)}</dd>
+        <dt>Created</dt><dd>${esc(new Date(r.vm.createdAt).toLocaleTimeString())}</dd>
+        <dt>Destroyed</dt><dd>${esc(destroyed)}</dd>
+        <dt>Where the time went</dt><dd>boot ${secs(t.createMs)} · convert ${secs(t.attemptsMs)}
+          · transfer ${secs(t.uploadMs + t.downloadMs)} · destroy ${secs(t.destroyMs)}</dd>
+      </dl>
 
       ${data.pageCount ? `<h2>Proof it opened</h2><div class="pages">${pages}</div>` : ''}
       ${data.textPreview ? `<h2>Text found inside</h2><pre class="text">${esc(data.textPreview)}</pre>` : ''}

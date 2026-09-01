@@ -40,6 +40,16 @@ export type RescueOptions = {
 type PageInfo = { path: string; deviation: number };
 type Collected = { status: 'nopdf' | 'nopages' | 'ok'; pages: PageInfo[] };
 
+/** Handed back by the guest phase; the report is assembled after teardown, so
+ *  it can state when the machine was destroyed. */
+type GuestWork = {
+  artifacts: RescueArtifacts;
+  pages: PageInfo[];
+  winner: string | null;
+  uploadMs: number;
+  downloadMs: number;
+};
+
 function nextStepFor(detection: Detection): string {
   switch (detection.family) {
     case 'office':
@@ -87,7 +97,7 @@ export async function rescue(
   const inputPath = guestInputPath(detection);
   const attempts: Attempt[] = [];
 
-  return withSandbox(
+  const { value, lifecycle } = await withSandbox<GuestWork>(
     client,
     {
       template: options.template,
@@ -95,11 +105,13 @@ export async function rescue(
       timeoutMs: 15 * MINUTE,
       metadata: { app: 'openable', role: 'rescue' },
     },
-    async (sandbox): Promise<RescueOutcome> => {
+    async (sandbox): Promise<GuestWork> => {
       const id = sandbox.sandboxId;
       const sh = (script: string, timeoutMs: number) => client.exec(id, 'sh', ['-c', script], timeoutMs);
 
+      const uploadStarted = Date.now();
       await client.upload(id, inputPath, input.bytes);
+      const uploadMs = Date.now() - uploadStarted;
 
       let pages: PageInfo[] = [];
       let winner: string | null = null;
@@ -144,6 +156,7 @@ export async function rescue(
       }
 
       const artifacts: RescueArtifacts = { pdf: null, pages: [], text: '' };
+      const downloadStarted = Date.now();
 
       if (winner) {
         artifacts.pdf = await client.download(id, OUT_PDF);
@@ -157,24 +170,41 @@ export async function rescue(
         }
       }
 
-      const report: RescueReport = {
-        originalName: input.filename,
-        sizeBytes: input.bytes.byteLength,
-        detection,
-        attempts,
-        outputs: {
-          pdfPath: winner ? OUT_PDF : null,
-          pageImagePaths: pages.map((page) => page.path),
-          blankPages: pages.map((page) => page.deviation < BLANK_PAGE_THRESHOLD),
-          text: artifacts.text,
-        },
-        recovered: winner !== null,
-        degraded: winner !== null && LOSSY_STRATEGIES.has(winner),
-        nextStep: winner ? null : nextStepFor(detection),
-        totalMs: Date.now() - started,
-      };
-
-      return { report, artifacts };
+      return { artifacts, pages, winner, uploadMs, downloadMs: Date.now() - downloadStarted };
     },
   );
+
+  const { artifacts, pages, winner } = value;
+
+  const report: RescueReport = {
+    originalName: input.filename,
+    sizeBytes: input.bytes.byteLength,
+    detection,
+    attempts,
+    outputs: {
+      pdfPath: winner ? OUT_PDF : null,
+      pageImagePaths: pages.map((page) => page.path),
+      blankPages: pages.map((page) => page.deviation < BLANK_PAGE_THRESHOLD),
+      text: artifacts.text,
+    },
+    recovered: winner !== null,
+    degraded: winner !== null && LOSSY_STRATEGIES.has(winner),
+    nextStep: winner ? null : nextStepFor(detection),
+    totalMs: Date.now() - started,
+    timings: {
+      createMs: lifecycle.createMs,
+      uploadMs: value.uploadMs,
+      attemptsMs: attempts.reduce((sum, attempt) => sum + attempt.durationMs, 0),
+      downloadMs: value.downloadMs,
+      destroyMs: lifecycle.destroyMs,
+    },
+    vm: {
+      sandboxId: lifecycle.sandboxId,
+      createdAt: lifecycle.createdAt,
+      destroyedAt: lifecycle.destroyedAt,
+      destroyed: lifecycle.destroyed,
+    },
+  };
+
+  return { report, artifacts };
 }

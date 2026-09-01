@@ -126,6 +126,9 @@ async function handleRead(args: Record<string, unknown>): Promise<ToolResult> {
     report.degraded
       ? 'Note: the document structure was too damaged to rebuild, so only raw readable text was salvaged. Layout is lost.'
       : `Opened with: ${report.attempts.find((a) => a.outcome === 'ok')?.label ?? 'unknown'}.`,
+    report.vm.destroyed
+      ? `The machine that held the file (${report.vm.sandboxId}) was destroyed at ${report.vm.destroyedAt}.`
+      : `Warning: the machine ${report.vm.sandboxId} could not be destroyed and may still hold the file.`,
     '',
     '--- Extracted text ---',
     artifacts.text.trim() || '(no text layer; the document may be image-only)',

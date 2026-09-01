@@ -56,6 +56,9 @@ export type AppDependencies = {
 export function createApp(deps: AppDependencies): Server {
   const { config, client, queue, store } = deps;
 
+  // VM time is the billable unit, so it is counted rather than estimated.
+  const metrics = { rescues: 0, recovered: 0, vmMs: 0 };
+
   return createServer((req, res) => {
     void handle(req, res).catch((error: unknown) => {
       console.error('[server] unhandled:', error);
@@ -74,7 +77,17 @@ export function createApp(deps: AppDependencies): Server {
     }
 
     if (req.method === 'GET' && path === '/healthz') {
-      sendJson(res, 200, { ok: true, queue: queue.stats, template: config.template });
+      sendJson(res, 200, {
+        ok: true,
+        queue: queue.stats,
+        template: config.template,
+        rescues: metrics.rescues,
+        recovered: metrics.recovered,
+        vmSeconds: Math.round(metrics.vmMs / 1000),
+        vmSecondsPerRescue: metrics.rescues
+          ? Number((metrics.vmMs / metrics.rescues / 1000).toFixed(1))
+          : 0,
+      });
       return;
     }
 
@@ -114,6 +127,12 @@ export function createApp(deps: AppDependencies): Server {
         rescue(client, { filename: name, bytes }, { template: config.template }),
       );
       const id = store.put(outcome);
+      const { timings } = outcome.report;
+      metrics.rescues += 1;
+      if (outcome.report.recovered) metrics.recovered += 1;
+      metrics.vmMs +=
+        timings.createMs + timings.uploadMs + timings.attemptsMs + timings.downloadMs + timings.destroyMs;
+
       sendJson(res, 200, {
         id,
         report: { ...outcome.report, outputs: { ...outcome.report.outputs, text: '' } },

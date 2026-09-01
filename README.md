@@ -45,7 +45,7 @@ combination to host any other way.
 | --- | --- |
 | Real converter binaries, not a reimplementation | A full Linux userland per rescue |
 | Untrusted files must not touch shared infrastructure | Hardware-isolated microVM per file |
-| Fast enough to feel interactive | Boot from a promoted snapshot in about a second |
+| Fast enough to feel interactive | Boot from a promoted snapshot, no install at request time |
 | A credible deletion promise | `DELETE /sandboxes/:id` in a `finally` block |
 
 The converters are installed **once** into a sandbox, snapshotted, and promoted to a durable
@@ -126,13 +126,13 @@ damages copies of them.
 
 | File | Detected as | Recovered | What worked | Pages | Time |
 | --- | --- | --- | --- | --- | --- |
-| `broken.pdf` | PDF | yes | Ghostscript PDF repair | 2 | 18.9s |
-| `budget.xls` | Excel 97-2003 workbook | yes | LibreOffice direct export | 1 | 18.4s |
-| `good.pdf` | PDF | yes | Verified as-is | 2 | 17.5s |
-| `logo.svg` | SVG image | yes | Inkscape vector export | 1 | 16.2s |
+| `broken.pdf` | PDF | yes | Ghostscript PDF repair | 2 | 18.1s |
+| `budget.xls` | Excel 97-2003 workbook | yes | LibreOffice direct export | 1 | 15.7s |
+| `good.pdf` | PDF | yes | Verified as-is | 2 | 15.7s |
+| `logo.svg` | SVG image | yes | Inkscape vector export | 1 | 14.8s |
 | `notes.rtf` | Rich Text Format | yes | LibreOffice direct export | 1 | 17.0s |
-| `report.doc` | Word 97-2003 document | yes | LibreOffice direct export | 1 | 16.4s |
-| `truncated.doc` | Word 97-2003 document | partial | Raw text salvage | 1 | 20.4s |
+| `report.doc` | Word 97-2003 document | yes | LibreOffice direct export | 1 | 15.5s |
+| `truncated.doc` | Word 97-2003 document | partial | Raw text salvage | 1 | 19.4s |
 
 Two results are worth calling out.
 
@@ -145,9 +145,42 @@ original. This is why success requires a rendered page rather than merely a file
 refused it, and raw salvage recovered the readable text, including the document title. It is
 reported as *partly recovered*, because claiming otherwise would be a lie about the layout.
 
-Other measurements: a sandbox boots in about **1.4s**, provisioning the template takes about
-**1.6 minutes** once, and a rescue takes roughly **16–21s** end to end including boot,
-conversion, rendering and teardown.
+Other measurements: provisioning the template takes about **1.6 minutes** once, and a rescue
+takes roughly **15–19s** end to end including boot, conversion, rendering and teardown.
+
+
+## Where the time actually goes
+
+Averaged over the seven fixtures above, from the same `npm run e2e` run:
+
+| Stage | Mean per rescue | Share |
+| --- | --- | --- |
+| Boot the VM | 11.1s | 67% |
+| Upload the file | 1.1s | 7% |
+| Run converters | 2.1s | 13% |
+| Download results | 2.0s | 12% |
+| Destroy the VM | 0.2s | 1% |
+| **Total** | **16.6s** | |
+
+I had assumed conversion was the expensive part and spent an optimisation pass collapsing six
+guest round trips into one. It bought about a second. Measuring properly showed why: the
+converters are not slow, and **boot is two thirds of the wall clock**.
+
+The cause is the template itself. Timing three cold boots of each:
+
+| Template | Mean boot |
+| --- | --- |
+| `base` | 0.5s |
+| Openable, with LibreOffice, Inkscape, Ghostscript and ImageMagick | 11.1s |
+
+So the pre-warmed toolchain that makes conversion take 2.1s instead of several minutes is
+also what costs 10.6s of boot. That is still the right trade, but it means further work on
+the conversion code is pointless. The remaining levers are a slimmer template, or a warm pool
+of ready VMs, and a warm pool trades away the guarantee that your file lands on a machine
+nobody else has touched. I would rather keep the guarantee and show a progress indicator.
+
+An earlier version of this README claimed boot took 1.4s. That number was real but it was the
+`base` template, not the one this actually runs on.
 
 
 ## Design decisions

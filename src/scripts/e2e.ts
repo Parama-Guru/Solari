@@ -17,6 +17,8 @@ async function main(): Promise<void> {
 
   const rows: string[] = [];
   let failures = 0;
+  let undestroyed = 0;
+  const total = { createMs: 0, uploadMs: 0, attemptsMs: 0, downloadMs: 0, destroyMs: 0, wallMs: 0 };
 
   for (const name of files) {
     const bytes = new Uint8Array(readFileSync(join(FIXTURE_DIR, name)));
@@ -33,6 +35,22 @@ async function main(): Promise<void> {
     }
     console.log(`    result   : ${report.recovered ? 'RECOVERED' : 'not recovered'}`);
     console.log(`    pages    : ${artifacts.pages.length}   text: ${artifacts.text.length} chars   ${(report.totalMs / 1000).toFixed(1)}s`);
+
+    const t = report.timings;
+    const s = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+    console.log(
+      `    profile  : boot ${s(t.createMs)}  upload ${s(t.uploadMs)}  convert ${s(t.attemptsMs)}` +
+        `  download ${s(t.downloadMs)}  destroy ${s(t.destroyMs)}`,
+    );
+    console.log(`    vm       : ${report.vm.sandboxId} ${report.vm.destroyed ? `destroyed ${report.vm.destroyedAt}` : 'NOT DESTROYED'}`);
+
+    if (!report.vm.destroyed) undestroyed++;
+    total.createMs += t.createMs;
+    total.uploadMs += t.uploadMs;
+    total.attemptsMs += t.attemptsMs;
+    total.downloadMs += t.downloadMs;
+    total.destroyMs += t.destroyMs;
+    total.wallMs += report.totalMs;
 
     if (report.recovered && artifacts.pdf) {
       writeFileSync(join(OUT_DIR, `${name}.pdf`), artifacts.pdf);
@@ -53,6 +71,19 @@ async function main(): Promise<void> {
   for (const row of rows) console.log(row);
   console.log(`\nArtifacts written to ${OUT_DIR}`);
   console.log(`${files.length - failures}/${files.length} recovered.`);
+
+  const n = files.length;
+  const avg = (ms: number) => `${(ms / n / 1000).toFixed(1)}s`;
+  const share = (ms: number) => `${((ms / total.wallMs) * 100).toFixed(0)}%`;
+  console.log('\n| Stage | Mean per rescue | Share of wall clock |');
+  console.log('| --- | --- | --- |');
+  console.log(`| Boot the VM | ${avg(total.createMs)} | ${share(total.createMs)} |`);
+  console.log(`| Upload the file | ${avg(total.uploadMs)} | ${share(total.uploadMs)} |`);
+  console.log(`| Run converters | ${avg(total.attemptsMs)} | ${share(total.attemptsMs)} |`);
+  console.log(`| Download results | ${avg(total.downloadMs)} | ${share(total.downloadMs)} |`);
+  console.log(`| Destroy the VM | ${avg(total.destroyMs)} | ${share(total.destroyMs)} |`);
+  console.log(`| **Total** | **${avg(total.wallMs)}** | |`);
+  console.log(`\nVMs left alive: ${undestroyed}`);
 }
 
 main().catch((error: unknown) => {
