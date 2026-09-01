@@ -179,29 +179,26 @@ export function planFor(detection: Detection): Strategy[] {
   }
 }
 
-/** Renders one PNG per page so the user can see the file really opened. */
-export const renderPagesCommand = (pdfPath: string, outDir: string): Command => ({
-  cmd: 'sh',
-  args: ['-c', `pdftoppm -png -r 110 -scale-to-x 1000 -scale-to-y -1 ${pdfPath} ${outDir}/page`],
-  timeoutMs: 3 * MINUTE,
-});
-
-export const extractTextCommand = (pdfPath: string, outPath: string): Command => ({
-  cmd: 'sh',
-  args: ['-c', `pdftotext -layout ${pdfPath} ${outPath} || true`],
-  timeoutMs: 2 * MINUTE,
-});
-
-/** Emits a normalised standard deviation per page; a uniform page scores near zero. */
-export const pageVarianceCommand = (outDir: string): Command => ({
-  cmd: 'sh',
-  args: [
-    '-c',
-    `for f in ${outDir}/page*.png; do printf '%s ' "$f"; ` +
-      `identify -format '%[fx:standard_deviation]' "$f" 2>/dev/null || printf '1'; echo; done`,
-  ],
-  timeoutMs: 2 * MINUTE,
-});
-
 /** Below this, a rendered page carries no visible content. */
 export const BLANK_PAGE_THRESHOLD = 0.01;
+
+/**
+ * One round trip that decides whether an attempt succeeded and gathers everything from it.
+ * Each API call costs roughly half a second, so collapsing six calls into one is most of
+ * the latency budget.
+ */
+export const verifyAndCollectCommand = (outDir: string, pdfPath: string, textPath: string): Command => {
+  const script = [
+    `if [ ! -s ${pdfPath} ]; then echo STATUS=nopdf; exit 0; fi`,
+    `pdftoppm -png -r 110 -scale-to-x 1000 -scale-to-y -1 ${pdfPath} ${outDir}/page 2>/dev/null`,
+    `PAGES=$(ls -1 ${outDir}/page*.png 2>/dev/null | sort)`,
+    'if [ -z "$PAGES" ]; then echo STATUS=nopages; exit 0; fi',
+    'echo STATUS=ok',
+    `pdftotext -layout ${pdfPath} ${textPath} 2>/dev/null || true`,
+    'echo PAGES_BEGIN',
+    `for f in $PAGES; do printf '%s ' "$f"; identify -format '%[fx:standard_deviation]' "$f" 2>/dev/null || printf '1'; echo; done`,
+    'echo PAGES_END',
+  ].join('; ');
+
+  return { cmd: 'sh', args: ['-c', script], timeoutMs: 5 * MINUTE };
+};

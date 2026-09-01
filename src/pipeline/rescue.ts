@@ -1,15 +1,13 @@
 import { detect } from '../core/detect.ts';
 import {
   BLANK_PAGE_THRESHOLD,
-  extractTextCommand,
   guestInputPath,
   HOP_DIR,
   LOSSY_STRATEGIES,
   OUT_DIR,
   OUT_PDF,
-  pageVarianceCommand,
   planFor,
-  renderPagesCommand,
+  verifyAndCollectCommand,
 } from '../core/strategies.ts';
 import type { Attempt, Detection, RescueReport } from '../core/types.ts';
 import type { SolariClient } from '../solari/client.ts';
@@ -39,6 +37,9 @@ export type RescueOptions = {
   template: string;
 };
 
+type PageInfo = { path: string; deviation: number };
+type Collected = { status: 'nopdf' | 'nopages' | 'ok'; pages: PageInfo[] };
+
 function nextStepFor(detection: Detection): string {
   switch (detection.family) {
     case 'office':
@@ -55,6 +56,26 @@ function nextStepFor(detection: Detection): string {
 }
 
 const firstLine = (text: string): string => text.split('\n').find((line) => line.trim())?.trim() ?? '';
+
+function parseCollected(stdout: string): Collected {
+  const lines = stdout.split('\n').map((line) => line.trim());
+  const statusLine = lines.find((line) => line.startsWith('STATUS='));
+  const status = statusLine?.slice('STATUS='.length) as Collected['status'] | undefined;
+  if (status !== 'ok') return { status: status ?? 'nopdf', pages: [] };
+
+  const begin = lines.indexOf('PAGES_BEGIN');
+  const end = lines.indexOf('PAGES_END');
+  const pages: PageInfo[] = [];
+
+  if (begin !== -1 && end > begin) {
+    for (const line of lines.slice(begin + 1, end)) {
+      const parts = line.split(/\s+/);
+      if (parts.length !== 2 || !parts[0]) continue;
+      pages.push({ path: parts[0], deviation: Number(parts[1]) });
+    }
+  }
+  return { status: 'ok', pages };
+}
 
 export async function rescue(
   client: SolariClient,
@@ -78,11 +99,9 @@ export async function rescue(
       const id = sandbox.sandboxId;
       const sh = (script: string, timeoutMs: number) => client.exec(id, 'sh', ['-c', script], timeoutMs);
 
-      await sh(`mkdir -p ${OUT_DIR} ${HOP_DIR}`, MINUTE);
       await client.upload(id, inputPath, input.bytes);
 
-      let pageImagePaths: string[] = [];
-      let blankPages: boolean[] = [];
+      let pages: PageInfo[] = [];
       let winner: string | null = null;
 
       for (const strategy of planFor(detection)) {
@@ -103,25 +122,23 @@ export async function rescue(
         await sh(`rm -rf ${OUT_DIR} ${HOP_DIR}; mkdir -p ${OUT_DIR} ${HOP_DIR}`, MINUTE);
         const run = await client.exec(id, command.cmd, command.args, command.timeoutMs);
 
-        const produced = await sh(`test -s ${OUT_PDF}`, 30_000);
-        if (produced.exitCode !== 0) {
+        const collect = verifyAndCollectCommand(OUT_DIR, OUT_PDF, TEXT_PATH);
+        const collected = parseCollected(
+          (await client.exec(id, collect.cmd, collect.args, collect.timeoutMs)).stdout,
+        );
+
+        if (collected.status === 'nopdf') {
           record('failed', run.exitCode, firstLine(run.stderr) || firstLine(run.stdout) || 'No PDF was written.');
           continue;
         }
-
-        // The real test is whether pages render. A PDF that renders nothing is not a recovery.
-        const render = renderPagesCommand(OUT_PDF, OUT_DIR);
-        await client.exec(id, render.cmd, render.args, render.timeoutMs);
-        const listed = await sh(`ls -1 ${OUT_DIR}/page*.png 2>/dev/null | sort`, MINUTE);
-        const pages = listed.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
-
-        if (pages.length === 0) {
+        if (collected.status === 'nopages') {
           record('failed', run.exitCode, 'Produced a PDF, but it renders no pages.');
           continue;
         }
 
-        record('ok', run.exitCode, `Produced a PDF that renders ${pages.length} page${pages.length === 1 ? '' : 's'}.`);
-        pageImagePaths = pages;
+        const count = collected.pages.length;
+        record('ok', run.exitCode, `Produced a PDF that renders ${count} page${count === 1 ? '' : 's'}.`);
+        pages = collected.pages;
         winner = strategy.id;
         break;
       }
@@ -129,28 +146,14 @@ export async function rescue(
       const artifacts: RescueArtifacts = { pdf: null, pages: [], text: '' };
 
       if (winner) {
-        const variance = pageVarianceCommand(OUT_DIR);
-        const measured = await client.exec(id, variance.cmd, variance.args, variance.timeoutMs);
-        const deviations = new Map(
-          measured.stdout
-            .split('\n')
-            .map((line) => line.trim().split(/\s+/))
-            .filter((parts): parts is [string, string] => parts.length === 2)
-            .map(([path, value]) => [path, Number(value)] as const),
-        );
-        blankPages = pageImagePaths.map((path) => (deviations.get(path) ?? 1) < BLANK_PAGE_THRESHOLD);
-
-        const extract = extractTextCommand(OUT_PDF, TEXT_PATH);
-        await client.exec(id, extract.cmd, extract.args, extract.timeoutMs);
-
         artifacts.pdf = await client.download(id, OUT_PDF);
-        for (const path of pageImagePaths.slice(0, MAX_PAGES)) {
-          artifacts.pages.push(await client.download(id, path));
+        for (const page of pages.slice(0, MAX_PAGES)) {
+          artifacts.pages.push(await client.download(id, page.path));
         }
-
-        const hasText = await sh(`test -s ${TEXT_PATH}`, 30_000);
-        if (hasText.exitCode === 0) {
-          artifacts.text = new TextDecoder().decode(await client.download(id, TEXT_PATH));
+        try {
+          artifacts.text = new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
+        } catch {
+          artifacts.text = '';
         }
       }
 
@@ -161,8 +164,8 @@ export async function rescue(
         attempts,
         outputs: {
           pdfPath: winner ? OUT_PDF : null,
-          pageImagePaths,
-          blankPages,
+          pageImagePaths: pages.map((page) => page.path),
+          blankPages: pages.map((page) => page.deviation < BLANK_PAGE_THRESHOLD),
           text: artifacts.text,
         },
         recovered: winner !== null,

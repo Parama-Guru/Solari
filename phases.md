@@ -15,23 +15,30 @@ Open a dead file on a disposable machine and prove it opened.
 - **Done when:** every fixture recovers end to end on live Solari. *Passed 7/7.*
 - **Evidence:** corrupt PDF rebuilt to 2 pages; truncated `.doc` salvaged; 19/19 unit tests.
 
-### P1.1 Improve `[ ]`
-- Cache the boot: reuse one warm sandbox across queued files instead of one VM per file.
-- Stream progress to the browser rather than making the user wait ~17s on a blank spinner.
-- Add OCR so scanned documents return text, not just page images.
+### P1.1 Improve `[~]`
+- [x] Collapsed six guest calls per attempt into one. Measured gain was only ~1s
+      (17.9s → 16.9s average), which rules out round-trip latency as the bottleneck.
+- [ ] Profile where the remaining ~16s actually goes before optimising further.
+      Suspects: VM create, the awaited destroy, and file upload/download.
+- [ ] Stream progress to the browser; a 16s wait needs feedback more than it needs speed.
+- [ ] Add OCR so scanned documents return text, not just page images.
 
-### P1.2 Issues `[ ]`
-- Fixed one VM per rescue costs ~17s even for a 300-byte SVG.
-- `magick` is absent on Debian 12; the chain silently relies on the `convert` fallback.
-- Page images capped at 8, with no way to request the rest.
+### P1.2 Issues `[~]`
+- [x] Mitigated: `magick` is absent on Debian 12, and the chain falls back to `convert`.
+- [ ] Fixed one VM per rescue costs ~16s even for a 300-byte SVG.
+- [ ] Page images capped at 8, with no way to request the rest.
 
 ---
 
-## P2 — Public deployment `[ ]`
+## P2 — Public deployment `[~]`
 
 Make it a link a stranger can click.
 
 - **Done when:** a URL works from a phone with no install, signup, or key.
+- **Ready:** `Dockerfile` and `fly.toml` are written; the image has zero runtime
+  dependencies. Unverified locally because Docker is not installed on this machine,
+  so it is validated on first remote build.
+- **Blocked on:** which host to use, and an account on it.
 
 ### P2.1 Improve `[ ]`
 - Rate limit by IP so one person cannot occupy the single VM slot.
