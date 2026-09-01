@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e7eaf0;
-    --muted: #9aa4b8; --accent: #6ea8fe; --ok: #4ade80; --bad: #f87171;
+    --muted: #9aa4b8; --accent: #6ea8fe; --ok: #4ade80; --bad: #f87171; --warn: #fbbf24;
   }
   * { box-sizing: border-box; }
   body {
@@ -31,7 +31,7 @@
     border-radius: 14px; padding: 20px 22px; margin-top: 22px;
   }
   .verdict { display: flex; align-items: baseline; gap: 10px; font-size: 18px; font-weight: 600; }
-  .verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); }
+  .verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); } .verdict.warn { color: var(--warn); }
   .verdict small { color: var(--muted); font-weight: 400; font-size: 13px; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 16px 0 0; font-size: 14px; }
   dt { color: var(--muted); } dd { margin: 0; }
@@ -43,7 +43,9 @@
   .mark.ok { color: var(--ok); } .mark.bad { color: var(--bad); }
   .detail { color: var(--muted); font-size: 13px; }
   .pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .pages figure { margin: 0; }
   .pages img { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: block; }
+  .pages figcaption { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
   a.btn, button.btn {
     background: var(--accent); color: #0b1020; border: 0; border-radius: 9px;
@@ -136,15 +138,25 @@ function render(data) {
       </span>
     </li>`).join('');
 
-  const pages = Array.from({ length: data.pageCount }, (_, i) =>
-    `<img src="/api/result/${data.id}/page/${i}" alt="Page ${i + 1}" loading="lazy">`).join('');
+  const blanks = r.outputs?.blankPages ?? [];
+  const pages = Array.from({ length: data.pageCount }, (_, i) => `
+    <figure>
+      <img src="/api/result/${data.id}/page/${i}" alt="Page ${i + 1}" loading="lazy">
+      <figcaption>Page ${i + 1}${blanks[i] ? ' \u2014 blank in the original' : ''}</figcaption>
+    </figure>`).join('');
+
+  const state = r.recovered ? (r.degraded ? 'warn' : 'ok') : 'bad';
+  const heading = r.recovered ? (r.degraded ? 'Partly recovered' : 'Recovered') : 'Could not open it';
 
   out.innerHTML = `
     <div class="card">
-      <div class="verdict ${r.recovered ? 'ok' : 'bad'}">
-        ${r.recovered ? 'Recovered' : 'Could not open it'}
+      <div class="verdict ${state}">
+        ${heading}
         <small>${esc(r.originalName)} · ${seconds}s</small>
       </div>
+
+      ${r.degraded ? `<p class="detail">The document structure was too damaged to rebuild, so the readable
+        text was salvaged instead. Expect the original layout to be lost.</p>` : ''}
 
       <dl>
         <dt>Identified as</dt><dd>${esc(r.detection.format)}</dd>

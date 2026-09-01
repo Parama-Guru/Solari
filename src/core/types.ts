@@ -54,6 +54,8 @@ export type RescueOutputs = {
   pdfPath: string | null;
   /** Guest paths of one PNG per page, in order. */
   pageImagePaths: string[];
+  /** Parallel to the page images: true where a page carries no visible content. */
+  blankPages: boolean[];
   /** Text extracted from the recovered PDF. */
   text: string;
 };
@@ -65,6 +67,8 @@ export type RescueReport = {
   attempts: Attempt[];
   outputs: RescueOutputs;
   recovered: boolean;
+  /** True when only a lossy fallback succeeded, so the output is partial. */
+  degraded: boolean;
   /** Set when nothing worked, explaining what a human would need to do next. */
   nextStep: string | null;
   totalMs: number;

@@ -156,6 +156,9 @@ const UNKNOWN_CHAIN: readonly Strategy[] = [
 const isSpreadsheet = (detection: Detection): boolean =>
   /spreadsheet|excel|worksheet|1-2-3|calc/i.test(detection.format);
 
+/** Strategies that recover something readable but lose the original layout. */
+export const LOSSY_STRATEGIES: ReadonlySet<string> = new Set(['strings-salvage']);
+
 /**
  * Orders the conversion attempts for a detected file, cheapest and most faithful first.
  */
@@ -188,3 +191,17 @@ export const extractTextCommand = (pdfPath: string, outPath: string): Command =>
   args: ['-c', `pdftotext -layout ${pdfPath} ${outPath} || true`],
   timeoutMs: 2 * MINUTE,
 });
+
+/** Emits a normalised standard deviation per page; a uniform page scores near zero. */
+export const pageVarianceCommand = (outDir: string): Command => ({
+  cmd: 'sh',
+  args: [
+    '-c',
+    `for f in ${outDir}/page*.png; do printf '%s ' "$f"; ` +
+      `identify -format '%[fx:standard_deviation]' "$f" 2>/dev/null || printf '1'; echo; done`,
+  ],
+  timeoutMs: 2 * MINUTE,
+});
+
+/** Below this, a rendered page carries no visible content. */
+export const BLANK_PAGE_THRESHOLD = 0.01;

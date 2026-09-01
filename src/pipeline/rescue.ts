@@ -1,10 +1,13 @@
 import { detect } from '../core/detect.ts';
 import {
+  BLANK_PAGE_THRESHOLD,
   extractTextCommand,
   guestInputPath,
   HOP_DIR,
+  LOSSY_STRATEGIES,
   OUT_DIR,
   OUT_PDF,
+  pageVarianceCommand,
   planFor,
   renderPagesCommand,
 } from '../core/strategies.ts';
@@ -51,6 +54,8 @@ function nextStepFor(detection: Detection): string {
   }
 }
 
+const firstLine = (text: string): string => text.split('\n').find((line) => line.trim())?.trim() ?? '';
+
 export async function rescue(
   client: SolariClient,
   input: RescueInput,
@@ -76,48 +81,67 @@ export async function rescue(
       await sh(`mkdir -p ${OUT_DIR} ${HOP_DIR}`, MINUTE);
       await client.upload(id, inputPath, input.bytes);
 
-      let recovered = false;
+      let pageImagePaths: string[] = [];
+      let blankPages: boolean[] = [];
+      let winner: string | null = null;
 
       for (const strategy of planFor(detection)) {
         const command = strategy.build(inputPath, OUT_DIR);
         const attemptStarted = Date.now();
+        const record = (outcome: Attempt['outcome'], exitCode: number | null, detail: string): void => {
+          attempts.push({
+            strategyId: strategy.id,
+            label: strategy.label,
+            outcome,
+            exitCode,
+            detail,
+            durationMs: Date.now() - attemptStarted,
+          });
+        };
 
         // A clean output directory means a surviving PDF can only be this attempt's work.
         await sh(`rm -rf ${OUT_DIR} ${HOP_DIR}; mkdir -p ${OUT_DIR} ${HOP_DIR}`, MINUTE);
-
         const run = await client.exec(id, command.cmd, command.args, command.timeoutMs);
+
         const produced = await sh(`test -s ${OUT_PDF}`, 30_000);
-        const ok = produced.exitCode === 0;
-
-        attempts.push({
-          strategyId: strategy.id,
-          label: strategy.label,
-          outcome: ok ? 'ok' : 'failed',
-          exitCode: run.exitCode,
-          detail: ok
-            ? 'Produced a non-empty PDF.'
-            : (run.stderr.trim() || run.stdout.trim() || 'No PDF was written.').slice(0, 400),
-          durationMs: Date.now() - attemptStarted,
-        });
-
-        if (ok) {
-          recovered = true;
-          break;
+        if (produced.exitCode !== 0) {
+          record('failed', run.exitCode, firstLine(run.stderr) || firstLine(run.stdout) || 'No PDF was written.');
+          continue;
         }
+
+        // The real test is whether pages render. A PDF that renders nothing is not a recovery.
+        const render = renderPagesCommand(OUT_PDF, OUT_DIR);
+        await client.exec(id, render.cmd, render.args, render.timeoutMs);
+        const listed = await sh(`ls -1 ${OUT_DIR}/page*.png 2>/dev/null | sort`, MINUTE);
+        const pages = listed.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+
+        if (pages.length === 0) {
+          record('failed', run.exitCode, 'Produced a PDF, but it renders no pages.');
+          continue;
+        }
+
+        record('ok', run.exitCode, `Produced a PDF that renders ${pages.length} page${pages.length === 1 ? '' : 's'}.`);
+        pageImagePaths = pages;
+        winner = strategy.id;
+        break;
       }
 
       const artifacts: RescueArtifacts = { pdf: null, pages: [], text: '' };
-      let pageImagePaths: string[] = [];
 
-      if (recovered) {
-        const render = renderPagesCommand(OUT_PDF, OUT_DIR);
-        await client.exec(id, render.cmd, render.args, render.timeoutMs);
+      if (winner) {
+        const variance = pageVarianceCommand(OUT_DIR);
+        const measured = await client.exec(id, variance.cmd, variance.args, variance.timeoutMs);
+        const deviations = new Map(
+          measured.stdout
+            .split('\n')
+            .map((line) => line.trim().split(/\s+/))
+            .filter((parts): parts is [string, string] => parts.length === 2)
+            .map(([path, value]) => [path, Number(value)] as const),
+        );
+        blankPages = pageImagePaths.map((path) => (deviations.get(path) ?? 1) < BLANK_PAGE_THRESHOLD);
 
         const extract = extractTextCommand(OUT_PDF, TEXT_PATH);
         await client.exec(id, extract.cmd, extract.args, extract.timeoutMs);
-
-        const listed = await sh(`ls -1 ${OUT_DIR}/page*.png 2>/dev/null | sort`, MINUTE);
-        pageImagePaths = listed.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
 
         artifacts.pdf = await client.download(id, OUT_PDF);
         for (const path of pageImagePaths.slice(0, MAX_PAGES)) {
@@ -136,12 +160,14 @@ export async function rescue(
         detection,
         attempts,
         outputs: {
-          pdfPath: recovered ? OUT_PDF : null,
+          pdfPath: winner ? OUT_PDF : null,
           pageImagePaths,
+          blankPages,
           text: artifacts.text,
         },
-        recovered,
-        nextStep: recovered ? null : nextStepFor(detection),
+        recovered: winner !== null,
+        degraded: winner !== null && LOSSY_STRATEGIES.has(winner),
+        nextStep: winner ? null : nextStepFor(detection),
         totalMs: Date.now() - started,
       };
 

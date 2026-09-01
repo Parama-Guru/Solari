@@ -10,7 +10,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test",
+    "doctor": "node src/scripts/doctor.ts",
     "provision": "node src/scripts/provision.ts",
+    "fixtures": "node src/scripts/make-fixtures.ts",
+    "e2e": "node src/scripts/e2e.ts",
     "dev": "node src/server/main.ts",
     "start": "node src/server/main.ts"
   },
