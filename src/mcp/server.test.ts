@@ -45,10 +45,14 @@ test('completes the MCP initialize handshake', async () => {
   assert.equal((result['serverInfo'] as Record<string, unknown>)['name'], 'openable');
 });
 
-test('advertises both tools with schemas', async () => {
+test('advertises every tool with a schema', async () => {
   const response = await call(2, 'tools/list');
   const tools = (response['result'] as { tools: { name: string; inputSchema: unknown }[] }).tools;
-  assert.deepEqual(tools.map((t) => t.name).sort(), ['identify_file', 'read_unopenable_file']);
+  assert.deepEqual(tools.map((t) => t.name).sort(), [
+    'identify_file',
+    'read_unopenable_file',
+    'read_unopenable_files',
+  ]);
   for (const tool of tools) assert.ok(tool.inputSchema, `${tool.name} needs an input schema`);
 });
 
@@ -77,6 +81,26 @@ test('rejects an unknown tool name', async () => {
   const result = response['result'] as { content: { text: string }[]; isError?: boolean };
   assert.equal(result.isError, true);
   assert.match(result.content[0]!.text, /Unknown tool/);
+});
+
+test('refuses a batch with no paths before starting a machine', async () => {
+  const response = await call(7, 'tools/call', {
+    name: 'read_unopenable_files',
+    arguments: { paths: [] },
+  });
+  const result = response['result'] as { content: { text: string }[]; isError?: boolean };
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]!.text, /non-empty/);
+});
+
+test('caps how many files one batch may hold', async () => {
+  const response = await call(8, 'tools/call', {
+    name: 'read_unopenable_files',
+    arguments: { paths: Array.from({ length: 11 }, (_, i) => `/tmp/f${i}.doc`) },
+  });
+  const result = response['result'] as { content: { text: string }[]; isError?: boolean };
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]!.text, /At most 10/);
 });
 
 test('answers ping', async () => {

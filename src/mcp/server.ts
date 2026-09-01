@@ -3,11 +3,12 @@ import { readFileSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { loadConfig } from '../config.ts';
 import { detect } from '../core/detect.ts';
-import { rescue } from '../pipeline/rescue.ts';
+import { rescue, rescueBatch } from '../pipeline/rescue.ts';
 import { SolariClient } from '../solari/client.ts';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_BATCH_FILES = 10;
 
 type JsonRpcId = string | number | null;
 
@@ -56,6 +57,25 @@ const TOOLS = [
         },
       },
       required: ['path'],
+    },
+  },
+  {
+    name: 'read_unopenable_files',
+    description:
+      'Read several unopenable files in one call. They are all opened on a single disposable virtual ' +
+      'machine, so the boot cost is paid once instead of once per file. Boot is about two thirds of a ' +
+      'single rescue, so five files in one call take far less than five separate calls. Prefer this ' +
+      'whenever you have more than one file. The machine is destroyed afterwards.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: `Absolute paths to the files on this machine. At most ${MAX_BATCH_FILES}.`,
+        },
+      },
+      required: ['paths'],
     },
   },
 ] as const;
@@ -147,6 +167,49 @@ async function handleRead(args: Record<string, unknown>): Promise<ToolResult> {
   return { content };
 }
 
+async function handleReadMany(args: Record<string, unknown>): Promise<ToolResult> {
+  const paths = args['paths'];
+  if (!Array.isArray(paths) || paths.length === 0) throw new Error('A non-empty "paths" array is required.');
+  if (paths.length > MAX_BATCH_FILES) throw new Error(`At most ${MAX_BATCH_FILES} files per call.`);
+
+  const files = paths.map((path) => loadFile(path));
+  const config = loadConfig();
+  const client = new SolariClient({ apiKey: config.apiKey, baseUrl: config.baseUrl });
+
+  const batch = await rescueBatch(
+    client,
+    files.map((file) => ({ filename: file.name, bytes: file.bytes })),
+    { template: config.template },
+  );
+
+  const sections = batch.items.map(({ report, artifacts }) => {
+    if (!report.recovered) {
+      return `### ${report.originalName} \u2014 could not open\nIdentified as ${report.detection.format}. ${report.nextStep ?? ''}`;
+    }
+    const note = report.degraded ? ' (partial: structure was too damaged, so this is salvaged text only)' : '';
+    return (
+      `### ${report.originalName} \u2014 recovered${note}\n` +
+      `Identified as ${report.detection.format}, ${report.outputs.pageImagePaths.length} page(s).\n\n` +
+      (artifacts.text.trim() || '(no text layer; the document may be image-only)')
+    );
+  });
+
+  const vm = batch.items[0]?.report.vm;
+  const recovered = batch.items.filter((item) => item.report.recovered).length;
+
+  return textResult(
+    [
+      `Recovered ${recovered} of ${batch.items.length} files in ${(batch.totalMs / 1000).toFixed(1)}s on one ` +
+        `machine, paying ${(batch.bootMs / 1000).toFixed(1)}s of boot once rather than per file.`,
+      vm?.destroyed
+        ? `The machine that held them (${vm.sandboxId}) was destroyed at ${vm.destroyedAt}.`
+        : 'Warning: the machine could not be destroyed and may still hold these files.',
+      '',
+      sections.join('\n\n'),
+    ].join('\n'),
+  );
+}
+
 async function callTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
   try {
     switch (name) {
@@ -154,6 +217,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<To
         return handleIdentify(args);
       case 'read_unopenable_file':
         return await handleRead(args);
+      case 'read_unopenable_files':
+        return await handleReadMany(args);
       default:
         return textResult(`Unknown tool: ${name}`, true);
     }

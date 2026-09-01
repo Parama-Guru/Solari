@@ -8,10 +8,11 @@ import {
   OUT_PDF,
   planFor,
   verifyAndCollectCommand,
+  WORK_DIR,
 } from '../core/strategies.ts';
 import type { Attempt, Detection, RescueReport } from '../core/types.ts';
-import type { SolariClient } from '../solari/client.ts';
-import { withSandbox } from '../solari/session.ts';
+import type { CreateSandboxOptions, SolariClient } from '../solari/client.ts';
+import { withSandbox, type SandboxLifecycle } from '../solari/session.ts';
 
 const MINUTE = 60_000;
 const MAX_PAGES = 8;
@@ -37,6 +38,19 @@ export type RescueOptions = {
   template: string;
 };
 
+export type BatchItem = {
+  /** `timings.createMs` is this file's share of one shared boot, not a boot of its own. */
+  report: RescueReport;
+  artifacts: RescueArtifacts;
+};
+
+export type BatchOutcome = {
+  items: BatchItem[];
+  /** The real boot, paid once for the whole batch. */
+  bootMs: number;
+  totalMs: number;
+};
+
 type PageInfo = { path: string; deviation: number };
 type Collected = { status: 'nopdf' | 'nopages' | 'ok'; pages: PageInfo[] };
 
@@ -48,6 +62,13 @@ type GuestWork = {
   winner: string | null;
   uploadMs: number;
   downloadMs: number;
+};
+
+type FileRun = {
+  detection: Detection;
+  attempts: Attempt[];
+  guest: GuestWork;
+  wallMs: number;
 };
 
 function nextStepFor(detection: Detection): string {
@@ -87,96 +108,98 @@ function parseCollected(stdout: string): Collected {
   return { status: 'ok', pages };
 }
 
-export async function rescue(
-  client: SolariClient,
-  input: RescueInput,
-  options: RescueOptions,
-): Promise<RescueOutcome> {
+/** One file, start to finish, inside a sandbox that is already running. */
+async function runFile(client: SolariClient, id: string, input: RescueInput): Promise<FileRun> {
   const started = Date.now();
   const detection = detect(input.bytes, input.filename);
   const inputPath = guestInputPath(detection);
   const attempts: Attempt[] = [];
+  const sh = (script: string, timeoutMs: number) => client.exec(id, 'sh', ['-c', script], timeoutMs);
 
-  const { value, lifecycle } = await withSandbox<GuestWork>(
-    client,
-    {
-      template: options.template,
-      kind: 'sandbox',
-      timeoutMs: 15 * MINUTE,
-      metadata: { app: 'openable', role: 'rescue' },
-    },
-    async (sandbox): Promise<GuestWork> => {
-      const id = sandbox.sandboxId;
-      const sh = (script: string, timeoutMs: number) => client.exec(id, 'sh', ['-c', script], timeoutMs);
+  // A batch reuses the sandbox, so an earlier file's input must not linger.
+  await sh(`rm -f ${WORK_DIR}/input.*`, MINUTE);
 
-      const uploadStarted = Date.now();
-      await client.upload(id, inputPath, input.bytes);
-      const uploadMs = Date.now() - uploadStarted;
+  const uploadStarted = Date.now();
+  await client.upload(id, inputPath, input.bytes);
+  const uploadMs = Date.now() - uploadStarted;
 
-      let pages: PageInfo[] = [];
-      let winner: string | null = null;
+  let pages: PageInfo[] = [];
+  let winner: string | null = null;
 
-      for (const strategy of planFor(detection)) {
-        const command = strategy.build(inputPath, OUT_DIR);
-        const attemptStarted = Date.now();
-        const record = (outcome: Attempt['outcome'], exitCode: number | null, detail: string): void => {
-          attempts.push({
-            strategyId: strategy.id,
-            label: strategy.label,
-            outcome,
-            exitCode,
-            detail,
-            durationMs: Date.now() - attemptStarted,
-          });
-        };
+  for (const strategy of planFor(detection)) {
+    const command = strategy.build(inputPath, OUT_DIR);
+    const attemptStarted = Date.now();
+    const record = (outcome: Attempt['outcome'], exitCode: number | null, detail: string): void => {
+      attempts.push({
+        strategyId: strategy.id,
+        label: strategy.label,
+        outcome,
+        exitCode,
+        detail,
+        durationMs: Date.now() - attemptStarted,
+      });
+    };
 
-        // A clean output directory means a surviving PDF can only be this attempt's work.
-        await sh(`rm -rf ${OUT_DIR} ${HOP_DIR}; mkdir -p ${OUT_DIR} ${HOP_DIR}`, MINUTE);
-        const run = await client.exec(id, command.cmd, command.args, command.timeoutMs);
+    // A clean output directory means a surviving PDF can only be this attempt's work.
+    await sh(`rm -rf ${OUT_DIR} ${HOP_DIR}; mkdir -p ${OUT_DIR} ${HOP_DIR}`, MINUTE);
+    const run = await client.exec(id, command.cmd, command.args, command.timeoutMs);
 
-        const collect = verifyAndCollectCommand(OUT_DIR, OUT_PDF, TEXT_PATH);
-        const collected = parseCollected(
-          (await client.exec(id, collect.cmd, collect.args, collect.timeoutMs)).stdout,
-        );
+    const collect = verifyAndCollectCommand(OUT_DIR, OUT_PDF, TEXT_PATH);
+    const collected = parseCollected(
+      (await client.exec(id, collect.cmd, collect.args, collect.timeoutMs)).stdout,
+    );
 
-        if (collected.status === 'nopdf') {
-          record('failed', run.exitCode, firstLine(run.stderr) || firstLine(run.stdout) || 'No PDF was written.');
-          continue;
-        }
-        if (collected.status === 'nopages') {
-          record('failed', run.exitCode, 'Produced a PDF, but it renders no pages.');
-          continue;
-        }
+    if (collected.status === 'nopdf') {
+      record('failed', run.exitCode, firstLine(run.stderr) || firstLine(run.stdout) || 'No PDF was written.');
+      continue;
+    }
+    if (collected.status === 'nopages') {
+      record('failed', run.exitCode, 'Produced a PDF, but it renders no pages.');
+      continue;
+    }
 
-        const count = collected.pages.length;
-        record('ok', run.exitCode, `Produced a PDF that renders ${count} page${count === 1 ? '' : 's'}.`);
-        pages = collected.pages;
-        winner = strategy.id;
-        break;
-      }
+    const count = collected.pages.length;
+    record('ok', run.exitCode, `Produced a PDF that renders ${count} page${count === 1 ? '' : 's'}.`);
+    pages = collected.pages;
+    winner = strategy.id;
+    break;
+  }
 
-      const artifacts: RescueArtifacts = { pdf: null, pages: [], text: '' };
-      const downloadStarted = Date.now();
+  const artifacts: RescueArtifacts = { pdf: null, pages: [], text: '' };
+  const downloadStarted = Date.now();
 
-      if (winner) {
-        artifacts.pdf = await client.download(id, OUT_PDF);
-        for (const page of pages.slice(0, MAX_PAGES)) {
-          artifacts.pages.push(await client.download(id, page.path));
-        }
-        try {
-          artifacts.text = new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
-        } catch {
-          artifacts.text = '';
-        }
-      }
+  if (winner) {
+    artifacts.pdf = await client.download(id, OUT_PDF);
+    for (const page of pages.slice(0, MAX_PAGES)) {
+      artifacts.pages.push(await client.download(id, page.path));
+    }
+    try {
+      artifacts.text = new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
+    } catch {
+      artifacts.text = '';
+    }
+  }
 
-      return { artifacts, pages, winner, uploadMs, downloadMs: Date.now() - downloadStarted };
-    },
-  );
+  return {
+    detection,
+    attempts,
+    guest: { artifacts, pages, winner, uploadMs, downloadMs: Date.now() - downloadStarted },
+    wallMs: Date.now() - started,
+  };
+}
 
-  const { artifacts, pages, winner } = value;
+function buildReport(
+  input: RescueInput,
+  run: FileRun,
+  lifecycle: SandboxLifecycle,
+  createMs: number,
+  destroyMs: number,
+  totalMs: number,
+): RescueReport {
+  const { attempts, detection, guest } = run;
+  const { pages, winner } = guest;
 
-  const report: RescueReport = {
+  return {
     originalName: input.filename,
     sizeBytes: input.bytes.byteLength,
     detection,
@@ -185,18 +208,18 @@ export async function rescue(
       pdfPath: winner ? OUT_PDF : null,
       pageImagePaths: pages.map((page) => page.path),
       blankPages: pages.map((page) => page.deviation < BLANK_PAGE_THRESHOLD),
-      text: artifacts.text,
+      text: guest.artifacts.text,
     },
     recovered: winner !== null,
     degraded: winner !== null && LOSSY_STRATEGIES.has(winner),
     nextStep: winner ? null : nextStepFor(detection),
-    totalMs: Date.now() - started,
+    totalMs,
     timings: {
-      createMs: lifecycle.createMs,
-      uploadMs: value.uploadMs,
+      createMs,
+      uploadMs: guest.uploadMs,
       attemptsMs: attempts.reduce((sum, attempt) => sum + attempt.durationMs, 0),
-      downloadMs: value.downloadMs,
-      destroyMs: lifecycle.destroyMs,
+      downloadMs: guest.downloadMs,
+      destroyMs,
     },
     vm: {
       sandboxId: lifecycle.sandboxId,
@@ -205,6 +228,73 @@ export async function rescue(
       destroyed: lifecycle.destroyed,
     },
   };
+}
 
-  return { report, artifacts };
+const sandboxOptions = (options: RescueOptions, role: string): CreateSandboxOptions => ({
+  template: options.template,
+  kind: 'sandbox',
+  timeoutMs: 15 * MINUTE,
+  metadata: { app: 'openable', role },
+});
+
+export async function rescue(
+  client: SolariClient,
+  input: RescueInput,
+  options: RescueOptions,
+): Promise<RescueOutcome> {
+  const started = Date.now();
+
+  const { value: run, lifecycle } = await withSandbox<FileRun>(
+    client,
+    sandboxOptions(options, 'rescue'),
+    (sandbox) => runFile(client, sandbox.sandboxId, input),
+  );
+
+  return {
+    report: buildReport(input, run, lifecycle, lifecycle.createMs, lifecycle.destroyMs, Date.now() - started),
+    artifacts: run.guest.artifacts,
+  };
+}
+
+/**
+ * Several files on one machine. Boot is two thirds of a single rescue and is paid
+ * once here, so a batch of five costs far less than five rescues. The tradeoff is
+ * that the files share a machine, which is fine when they come from one caller.
+ */
+export async function rescueBatch(
+  client: SolariClient,
+  inputs: RescueInput[],
+  options: RescueOptions,
+): Promise<BatchOutcome> {
+  const started = Date.now();
+
+  const { value: runs, lifecycle } = await withSandbox<FileRun[]>(
+    client,
+    sandboxOptions(options, 'batch'),
+    async (sandbox) => {
+      const collected: FileRun[] = [];
+      for (const input of inputs) collected.push(await runFile(client, sandbox.sandboxId, input));
+      return collected;
+    },
+  );
+
+  // Boot and teardown are shared, so each file carries an equal share of them.
+  const bootShare = inputs.length > 0 ? lifecycle.createMs / inputs.length : 0;
+  const destroyShare = inputs.length > 0 ? lifecycle.destroyMs / inputs.length : 0;
+
+  return {
+    items: runs.map((run, index) => ({
+      report: buildReport(
+        inputs[index]!,
+        run,
+        lifecycle,
+        bootShare,
+        destroyShare,
+        run.wallMs + bootShare + destroyShare,
+      ),
+      artifacts: run.guest.artifacts,
+    })),
+    bootMs: lifecycle.createMs,
+    totalMs: Date.now() - started,
+  };
 }
