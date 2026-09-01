@@ -96,12 +96,14 @@ Nothing needs deploying and nothing needs installing. Add this to your MCP clien
 You supply your own Solari key, so the machine that opens your file is yours and nobody
 else's quota is involved. Requires Node 22.18 or newer.
 
-Two tools are exposed:
+Three tools are exposed:
 
 - **`identify_file`** — what a file actually is, from its bytes. Runs locally, starts no
   machine, and costs nothing. Useful as a cheap check before committing to a recovery.
 - **`read_unopenable_file`** — opens the file in an isolated VM and returns the text, with
-  the first page as an image when asked. Roughly 20 seconds.
+  the first page as an image when asked. Roughly 16 seconds.
+- **`read_unopenable_files`** — the same thing for up to ten files at once, sharing a single
+  VM so the boot cost is paid once. Measured at 2.6x faster; see below.
 
 A real call against a `.doc` truncated to 55% of its length:
 
@@ -181,6 +183,22 @@ nobody else has touched. I would rather keep the guarantee and show a progress i
 
 An earlier version of this README claimed boot took 1.4s. That number was real but it was the
 `base` template, not the one this actually runs on.
+
+
+## What the profile implies: batch, don't optimise
+
+If boot dominates and boot is paid per machine, then the win is fewer machines, not faster
+code. `read_unopenable_files` puts several files on one VM:
+
+| Five files | Time |
+| --- | --- |
+| Five separate rescues | 83.0s (5 × the 16.6s measured mean) |
+| One batched call | **31.8s** |
+
+Same 5 of 5 recovered, one 11.7s boot instead of five, and 6.4s per file instead of 16.6s.
+
+The tradeoff is that batched files share a machine. That is fine when they came from the same
+caller, and not fine across callers, so the web form still gets a fresh VM per file.
 
 
 ## Design decisions

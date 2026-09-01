@@ -75,7 +75,9 @@ Let an AI agent call this instead of parsing untrusted files itself.
 - [x] `identify_file` runs locally and starts no machine, so cheap checks stay free.
 - [x] Optional first-page image for vision-capable agents.
 - [ ] Publish to npm so installation is one command.
-- [ ] Batch tool that accepts several files in one call.
+- [x] Batch tool that accepts several files in one call. Directly follows the P1.1 profile:
+      boot is paid per machine, so ten files should share one. Measured on five fixtures,
+      31.8s batched against 83.0s sequential, 2.6x, with 5/5 still recovered.
 
 ### P3.2 Issues `[~]`
 - [x] Fixed: the server exited on stdin close while a tool call was still running.
