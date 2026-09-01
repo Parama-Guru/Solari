@@ -226,6 +226,12 @@ built only from constants, so a filename cannot inject shell syntax. This is enf
 earlier strategy could be mistaken for success.
 
 **Results are ephemeral.** They are held in memory for 30 minutes and never written to disk.
+Tick *keep nothing*, or send `?retain=none`, and even that is skipped: the PDF, page images
+and text come back in the reply itself and the server stores nothing at all.
+
+**The deletion claim is checkable.** Every result names the VM that held your file and the
+timestamp it was destroyed, and says so plainly when teardown failed rather than going quiet.
+A scheduled job sweeps anything a crashed process left behind.
 
 ## Architecture
 
