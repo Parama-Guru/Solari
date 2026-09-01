@@ -1,0 +1,21 @@
+{
+  "name": "openable",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Recover files that no longer open, inside a disposable Solari machine.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test",
+    "provision": "node src/scripts/provision.ts",
+    "dev": "node src/server/main.ts",
+    "start": "node src/server/main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Openable — recover a file nothing will open</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e7eaf0;
+    --muted: #9aa4b8; --accent: #6ea8fe; --ok: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 780px; margin: 0 auto; padding: 56px 20px 80px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.02em; }
+  .lede { color: var(--muted); margin: 0 0 32px; }
+  #drop {
+    border: 1.5px dashed var(--line); border-radius: 14px; padding: 44px 20px;
+    text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+    background: var(--panel);
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: #1b1f28; }
+  #drop strong { display: block; font-size: 17px; margin-bottom: 6px; }
+  #drop span { color: var(--muted); font-size: 13.5px; }
+  input[type=file] { display: none; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 20px 22px; margin-top: 22px;
+  }
+  .verdict { display: flex; align-items: baseline; gap: 10px; font-size: 18px; font-weight: 600; }
+  .verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); }
+  .verdict small { color: var(--muted); font-weight: 400; font-size: 13px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 16px 0 0; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 24px 0 10px; }
+  ol.attempts { list-style: none; padding: 0; margin: 0; font-size: 14px; }
+  ol.attempts li { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+  ol.attempts li:first-child { border-top: 0; }
+  .mark { flex: 0 0 auto; width: 16px; }
+  .mark.ok { color: var(--ok); } .mark.bad { color: var(--bad); }
+  .detail { color: var(--muted); font-size: 13px; }
+  .pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .pages img { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: block; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  a.btn, button.btn {
+    background: var(--accent); color: #0b1020; border: 0; border-radius: 9px;
+    padding: 10px 16px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none;
+  }
+  a.btn.ghost, button.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  pre.text {
+    white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto;
+    background: #0c0e13; border: 1px solid var(--line); border-radius: 9px; padding: 14px;
+    font-size: 13px; color: #cbd5e1; margin: 0;
+  }
+  .status { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+  .spinner {
+    width: 15px; height: 15px; border: 2px solid var(--line); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  footer { color: var(--muted); font-size: 13px; margin-top: 34px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .err { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Open a file nothing else will.</h1>
+  <p class="lede">
+    Drop in a document your computer refuses to open — an old Publisher or Works file,
+    a CorelDRAW drawing, a spreadsheet that only opens through a repair prompt.
+    It gets opened on a throwaway Linux machine, and you get back a readable PDF
+    plus a picture of every page, so you can see it really worked.
+  </p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose a file to recover">
+    <strong>Drop a file here, or click to choose</strong>
+    <span>Up to 25 MB. The machine that opens it is destroyed straight afterwards.</span>
+  </div>
+  <input type="file" id="file">
+
+  <div id="out"></div>
+
+  <footer>
+    Your file is uploaded to a single-use virtual machine, opened there, and the machine is
+    deleted when the run finishes or fails. Results are held in memory for 30 minutes and
+    are never written to disk.
+  </footer>
+</main>
+
+<script type="module">
+const drop = document.getElementById('drop');
+const picker = document.getElementById('file');
+const out = document.getElementById('out');
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+drop.addEventListener('click', () => picker.click());
+drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') picker.click(); });
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  if (e.dataTransfer.files[0]) send(e.dataTransfer.files[0]);
+});
+picker.addEventListener('change', () => { if (picker.files[0]) send(picker.files[0]); });
+
+async function send(file) {
+  out.innerHTML = `<div class="card"><div class="status"><div class="spinner"></div>
+    Booting a clean machine and trying to open <strong>${esc(file.name)}</strong>…</div></div>`;
+
+  try {
+    const res = await fetch('/api/rescue?name=' + encodeURIComponent(file.name), {
+      method: 'PUT', body: file,
+    });
+    const data = await res.json();
+    if (!res.ok) { out.innerHTML = `<div class="card err">${esc(data.error || 'That did not work.')}</div>`; return; }
+    render(data);
+  } catch {
+    out.innerHTML = `<div class="card err">The upload was interrupted. Please try again.</div>`;
+  }
+}
+
+function render(data) {
+  const r = data.report;
+  const seconds = (r.totalMs / 1000).toFixed(1);
+
+  const attempts = r.attempts.map((a) => `
+    <li>
+      <span class="mark ${a.outcome === 'ok' ? 'ok' : 'bad'}">${a.outcome === 'ok' ? '✓' : '✕'}</span>
+      <span><strong>${esc(a.label)}</strong>
+        <div class="detail">${esc(a.detail)}</div>
+      </span>
+    </li>`).join('');
+
+  const pages = Array.from({ length: data.pageCount }, (_, i) =>
+    `<img src="/api/result/${data.id}/page/${i}" alt="Page ${i + 1}" loading="lazy">`).join('');
+
+  out.innerHTML = `
+    <div class="card">
+      <div class="verdict ${r.recovered ? 'ok' : 'bad'}">
+        ${r.recovered ? 'Recovered' : 'Could not open it'}
+        <small>${esc(r.originalName)} · ${seconds}s</small>
+      </div>
+
+      <dl>
+        <dt>Identified as</dt><dd>${esc(r.detection.format)}</dd>
+        <dt>Evidence</dt><dd>${esc(r.detection.evidence)}</dd>
+      </dl>
+
+      ${r.recovered ? `
+        <div class="row">
+          <a class="btn" href="/api/result/${data.id}/pdf">Download the PDF</a>
+          ${data.textPreview ? `<a class="btn ghost" href="/api/result/${data.id}/text">Download the text</a>` : ''}
+        </div>` : `<p class="detail">${esc(r.nextStep || '')}</p>`}
+
+      <h2>What was tried</h2>
+      <ol class="attempts">${attempts}</ol>
+
+      ${data.pageCount ? `<h2>Proof it opened</h2><div class="pages">${pages}</div>` : ''}
+      ${data.textPreview ? `<h2>Text found inside</h2><pre class="text">${esc(data.textPreview)}</pre>` : ''}
+    </div>`;
+}
+</script>
+</body>
+</html>
