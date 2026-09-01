@@ -26,6 +26,9 @@
   #drop strong { display: block; font-size: 17px; margin-bottom: 6px; }
   #drop span { color: var(--muted); font-size: 13.5px; }
   input[type=file] { display: none; }
+  .retain { display: flex; gap: 9px; align-items: flex-start; margin-top: 14px;
+    color: var(--muted); font-size: 13px; line-height: 1.5; cursor: pointer; }
+  .retain input { margin-top: 2px; }
   .card {
     background: var(--panel); border: 1px solid var(--line);
     border-radius: 14px; padding: 20px 22px; margin-top: 22px;
@@ -83,18 +86,25 @@
   </div>
   <input type="file" id="file">
 
+  <label class="retain">
+    <input type="checkbox" id="noretain">
+    Keep nothing on the server. The result is returned once, in this reply, and never held
+    for later.
+  </label>
+
   <div id="out"></div>
 
   <footer>
     Your file is uploaded to a single-use virtual machine, opened there, and the machine is
     deleted when the run finishes or fails. Results are held in memory for 30 minutes and
-    are never written to disk.
+    are never written to disk. Tick the box above and nothing is kept at all.
   </footer>
 </main>
 
 <script type="module">
 const drop = document.getElementById('drop');
 const picker = document.getElementById('file');
+const noretain = document.getElementById('noretain');
 const out = document.getElementById('out');
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -115,7 +125,8 @@ async function send(file) {
     Booting a clean machine and trying to open <strong>${esc(file.name)}</strong>…</div></div>`;
 
   try {
-    const res = await fetch('/api/rescue?name=' + encodeURIComponent(file.name), {
+    const query = '/api/rescue?name=' + encodeURIComponent(file.name) + (noretain.checked ? '&retain=none' : '');
+    const res = await fetch(query, {
       method: 'PUT', body: file,
     });
     const data = await res.json();
@@ -135,6 +146,17 @@ function render(data) {
     ? new Date(r.vm.destroyedAt).toLocaleTimeString() + ' \u2014 your file went with it'
     : 'Destruction failed. The sweeper removes it as a backstop.';
 
+  const inline = data.retained === false;
+  const pdfHref = inline
+    ? (data.pdfBase64 ? 'data:application/pdf;base64,' + data.pdfBase64 : null)
+    : '/api/result/' + data.id + '/pdf';
+  const textHref = inline
+    ? 'data:text/plain;charset=utf-8,' + encodeURIComponent(data.textPreview || '')
+    : '/api/result/' + data.id + '/text';
+  const pageSrc = (i) => inline
+    ? 'data:image/png;base64,' + data.pagesBase64[i]
+    : '/api/result/' + data.id + '/page/' + i;
+
   const attempts = r.attempts.map((a) => `
     <li>
       <span class="mark ${a.outcome === 'ok' ? 'ok' : 'bad'}">${a.outcome === 'ok' ? '✓' : '✕'}</span>
@@ -146,7 +168,7 @@ function render(data) {
   const blanks = r.outputs?.blankPages ?? [];
   const pages = Array.from({ length: data.pageCount }, (_, i) => `
     <figure>
-      <img src="/api/result/${data.id}/page/${i}" alt="Page ${i + 1}" loading="lazy">
+      <img src="${pageSrc(i)}" alt="Page ${i + 1}" loading="lazy">
       <figcaption>Page ${i + 1}${blanks[i] ? ' \u2014 blank in the original' : ''}</figcaption>
     </figure>`).join('');
 
@@ -170,9 +192,11 @@ function render(data) {
 
       ${r.recovered ? `
         <div class="row">
-          <a class="btn" href="/api/result/${data.id}/pdf">Download the PDF</a>
-          ${data.textPreview ? `<a class="btn ghost" href="/api/result/${data.id}/text">Download the text</a>` : ''}
-        </div>` : `<p class="detail">${esc(r.nextStep || '')}</p>`}
+          <a class="btn" href="${pdfHref}" download="recovered.pdf">Download the PDF</a>
+          ${data.textPreview ? `<a class="btn ghost" href="${textHref}" download="recovered.txt">Download the text</a>` : ''}
+        </div>
+        ${inline ? `<p class="detail">Nothing was kept. This page is the only copy, so download it
+          before you close the tab.</p>` : ''}` : `<p class="detail">${esc(r.nextStep || '')}</p>`}
 
       <h2>What was tried</h2>
       <ol class="attempts">${attempts}</ol>

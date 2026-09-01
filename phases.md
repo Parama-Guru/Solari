@@ -154,11 +154,14 @@ Make the privacy claim checkable rather than merely stated.
 - [x] Every result names the machine that held the file and the timestamp it was destroyed,
       in the web UI and in the MCP tool output. A failed teardown says so instead of going
       quiet. Verified across a 7-fixture run: 7/7 reported destroyed, 0 VMs left alive.
-- [ ] Offer a no-retention mode that streams the PDF and stores nothing.
-
-### P7.2 Issues `[ ]`
-- Results sit in server memory for 30 minutes, which is longer than some users want.
-- No abuse handling for illegal or malicious uploads.
+- [x] No-retention mode: `?retain=none`, or the checkbox on the page, returns the PDF, page
+      images and text in the reply itself and stores nothing. Verified live: the response
+      carries no result id, and a lookup afterwards is a 404. Capped at 12 MB inline, above
+      which it says so rather than silently falling back to storing.
+### P7.2 Issues `[~]`
+- [x] Addressed: results sat in server memory for 30 minutes whether you wanted that or not.
+      No-retention mode keeps nothing; the 30-minute store is now opt-out.
+- [ ] No abuse handling for illegal or malicious uploads.
 
 ---
 

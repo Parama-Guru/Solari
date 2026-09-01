@@ -10,6 +10,9 @@ import { ResultStore } from './store.ts';
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const TEXT_PREVIEW_LIMIT = 20_000;
 
+// No-retention replies carry the artifacts in the body, so they need a ceiling of their own.
+const INLINE_LIMIT_BYTES = 12 * 1024 * 1024;
+
 const INDEX_HTML = readFileSync(join(import.meta.dirname, 'public', 'index.html'), 'utf8');
 
 class PayloadTooLargeError extends Error {}
@@ -92,7 +95,12 @@ export function createApp(deps: AppDependencies): Server {
     }
 
     if (req.method === 'PUT' && path === '/api/rescue') {
-      await handleRescue(req, res, displayName(url.searchParams.get('name')));
+      await handleRescue(
+        req,
+        res,
+        displayName(url.searchParams.get('name')),
+        url.searchParams.get('retain') !== 'none',
+      );
       return;
     }
 
@@ -105,7 +113,12 @@ export function createApp(deps: AppDependencies): Server {
     sendJson(res, 404, { error: 'Not found.' });
   }
 
-  async function handleRescue(req: IncomingMessage, res: ServerResponse, name: string): Promise<void> {
+  async function handleRescue(
+    req: IncomingMessage,
+    res: ServerResponse,
+    name: string,
+    retain: boolean,
+  ): Promise<void> {
     let bytes: Uint8Array;
     try {
       bytes = await readBody(req);
@@ -126,19 +139,42 @@ export function createApp(deps: AppDependencies): Server {
       const outcome = await queue.run(() =>
         rescue(client, { filename: name, bytes }, { template: config.template }),
       );
-      const id = store.put(outcome);
       const { timings } = outcome.report;
       metrics.rescues += 1;
       if (outcome.report.recovered) metrics.recovered += 1;
       metrics.vmMs +=
         timings.createMs + timings.uploadMs + timings.attemptsMs + timings.downloadMs + timings.destroyMs;
 
-      sendJson(res, 200, {
-        id,
+      const summary = {
         report: { ...outcome.report, outputs: { ...outcome.report.outputs, text: '' } },
         pageCount: outcome.artifacts.pages.length,
         textPreview: outcome.artifacts.text.slice(0, TEXT_PREVIEW_LIMIT),
-      });
+      };
+
+      if (!retain) {
+        const { pdf, pages } = outcome.artifacts;
+        const inlineBytes = (pdf?.byteLength ?? 0) + pages.reduce((sum, page) => sum + page.byteLength, 0);
+
+        if (inlineBytes > INLINE_LIMIT_BYTES) {
+          sendJson(res, 413, {
+            error:
+              'The recovery is too large to return without storing it. Retry without no-retention mode, ' +
+              'and the result will be held for 30 minutes instead.',
+          });
+          return;
+        }
+
+        sendJson(res, 200, {
+          ...summary,
+          id: null,
+          retained: false,
+          pdfBase64: pdf ? Buffer.from(pdf).toString('base64') : null,
+          pagesBase64: pages.map((page) => Buffer.from(page).toString('base64')),
+        });
+        return;
+      }
+
+      sendJson(res, 200, { ...summary, id: store.put(outcome), retained: true });
     } catch (error) {
       if (error instanceof QueueFullError) {
         sendJson(res, 503, { error: error.message });
