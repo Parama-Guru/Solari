@@ -5,13 +5,20 @@
   "description": "Recover files that no longer open, inside a disposable Solari machine.",
   "type": "module",
   "bin": {
-    "openable-mcp": "src/mcp/server.ts"
+    "openable-mcp": "dist/mcp/server.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
     "test": "node --test",
     "doctor": "node src/scripts/doctor.ts",
     "provision": "node src/scripts/provision.ts",
