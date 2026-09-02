@@ -22,17 +22,21 @@ Open a dead file on a disposable machine and prove it opened.
       Cause isolated by timing three cold boots of each template: `base` boots in 0.5s,
       ours in 11.1s. The pre-warmed toolchain is the cost. Further work on the conversion
       code cannot pay off, so this line of optimisation is closed.
-- [ ] Stream progress to the browser. Since boot dominates and is not ours to speed up,
-      feedback is worth more than latency work.
+- [x] Stream progress to the browser. The page used to animate fixed captions on a timer,
+      which claimed to be rendering pages while the machine was still booting. `?stream=1`
+      now returns NDJSON with a line per real stage.
 - [ ] Trial a slimmer template; the only lever that keeps the fresh-VM-per-file guarantee.
       A warm pool would be faster but trades the guarantee away.
-- [ ] Add OCR so scanned documents return text, not just page images.
+- [x] OCR so scanned documents return text, not just page images. Tesseract is in the
+      template and runs only when a recovered document has no text layer. Verified on an
+      image-only PDF: 0 characters before, real words after, with `ocr: true` in the report.
 
 ### P1.2 Issues `[~]`
 - [x] Mitigated: `magick` is absent on Debian 12, and the chain falls back to `convert`.
 - [x] Explained: one VM per rescue costs ~16s even for a 300-byte SVG because the
       template takes 11.1s to boot regardless of input size.
-- [ ] Page images capped at 8, with no way to request the rest.
+- [x] Page images are no longer fixed at 8. The cap is an option clamped to 1..50 and
+      exposed as `?pages=`.
 
 ---
 
@@ -157,8 +161,10 @@ Predictable behaviour under failure and load.
 
 ### P6.2 Issues `[~]`
 - [x] Mitigated: a leaked VM is now recoverable by the sweeper rather than waiting for idle timeout.
-- [ ] Teardown failure still only logs at the point of failure.
-- [ ] No global spend ceiling.
+- [x] Teardown failure is reported in the result and on shutdown, not only logged at the
+      point of failure. The server drains in-flight rescues rather than orphaning machines.
+- [x] There is now a global spend ceiling: `OPENABLE_MAX_VM_SECONDS_PER_DAY` refuses new
+      rescues once a rolling day of machine time is spent.
 
 ---
 
@@ -178,7 +184,9 @@ Make the privacy claim checkable rather than merely stated.
       which it says so rather than silently falling back to storing.
 ### P7.2 Issues `[~]`
 - [x] Addressed: results sat in server memory for 30 minutes whether you wanted that or not.
-      No-retention mode keeps nothing; the 30-minute store is now opt-out.
+      No-retention mode keeps nothing; the 30-minute store is now opt-out and capped by bytes
+      as well as by entry count.
+- [x] Rate limiting exists: a token bucket per caller, so one client cannot occupy the queue.
 - [ ] No abuse handling for illegal or malicious uploads.
 
 ---

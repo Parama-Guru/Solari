@@ -100,6 +100,8 @@ export type RescueReport = {
   recovered: boolean;
   /** True when only a lossy fallback succeeded, so the output is partial. */
   degraded: boolean;
+  /** True when the text came from reading the pixels, because there was no text layer. */
+  ocr: boolean;
   /** Set when nothing worked, explaining what a human would need to do next. */
   nextStep: string | null;
   totalMs: number;

@@ -44,6 +44,16 @@ const LONG_STAGES: Stage[] = [
     timeoutMs: 15 * MINUTE,
     optional: true,
   },
+  {
+    // Scanned documents render pages but carry no text layer; OCR is the only way to read them.
+    name: 'ocr',
+    script:
+      'set -e\n' +
+      'export DEBIAN_FRONTEND=noninteractive\n' +
+      'apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng\n',
+    timeoutMs: 15 * MINUTE,
+    optional: true,
+  },
 ];
 
 const SHORT_STAGES: Stage[] = [
@@ -70,7 +80,8 @@ const SHORT_STAGES: Stage[] = [
     script:
       'soffice --version; pdftoppm -v 2>&1 | head -1; ' +
       '(magick -version || convert -version) 2>&1 | head -1; gs --version; ' +
-      '(inkscape --version 2>&1 | head -1) || echo "inkscape: not installed"',
+      '(inkscape --version 2>&1 | head -1) || echo "inkscape: not installed"; ' +
+      '(tesseract --version 2>&1 | head -1) || echo "tesseract: not installed"',
     timeoutMs: 3 * MINUTE,
   },
 ];

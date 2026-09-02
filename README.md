@@ -337,7 +337,36 @@ since they contain `:` and `.`.
   fail with a non-retryable `429`.
 - **Recording is not used.** Solari rejects session recording on snapshot and custom-template
   boots, so proof comes from rendered page images instead.
-- **Scanned documents** yield page images but little text, because no OCR step is included yet.
+- **OCR is only as good as the scan.** It runs automatically when a recovered document has no
+  text layer, and the report sets `ocr: true` so you know the words came from pixels rather
+  than from the file.
+- **Windows does not deliver `SIGTERM`.** The server drains in-flight rescues on Linux and in
+  containers; on Windows a hard kill orphans the machine and `npm run sweep` is the backstop.
+
+## Running it as a service
+
+Everything below is optional and off by default, because the normal case is one person
+running it locally with their own key.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SOLARI_API_KEY` | — | Required. Your key, never ours. |
+| `SOLARI_TEMPLATE` | `base` | Required in practice. The server refuses to start on `base`, which has no converters. |
+| `SOLARI_MAX_CONCURRENCY` | `1` | Match your Solari plan's concurrent VM cap. |
+| `OPENABLE_RATE_LIMIT_PER_MINUTE` | `5` | Rescues per caller per minute. |
+| `OPENABLE_MAX_VM_SECONDS_PER_DAY` | `0` | Rolling daily ceiling on machine time. `0` disables it. |
+| `OPENABLE_MAX_RESULT_MB` | `256` | Finished results held in memory before the oldest are dropped. |
+| `OPENABLE_TRUST_PROXY` | `false` | Honour `X-Forwarded-For`. Only enable behind a proxy you control. |
+
+Add `?stream=1` to `PUT /api/rescue` and the reply becomes NDJSON: one line per stage as it
+happens, then a final line with the result. Boot is most of the wait, so this is the
+difference between a spinner and knowing what the machine is doing.
+
+```
+{"progress":{"stage":"booting"}}
+{"progress":{"stage":"attempting","label":"Ghostscript PDF repair","step":2,"of":2}}
+{"result":{ … }}
+```
 
 ## Licence
 

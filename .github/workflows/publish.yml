@@ -1,0 +1,53 @@
+name: Publish to npm
+
+# Runs when a version tag is pushed, e.g. `git tag v0.2.0 && git push --tags`.
+# Requires an NPM_TOKEN secret with publish rights. Without one the job stops early
+# rather than failing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+
+      # The same gate as CI: nothing ships that has not compiled and passed.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Check the tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag $TAG does not match package.json version $PKG."
+            exit 1
+          fi
+          echo "Publishing version $PKG"
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "No NPM_TOKEN secret is set, so there is nothing to publish to."
+            echo "Add one under Settings > Secrets and variables > Actions to enable this."
+            exit 0
+          fi
+          npm publish --provenance --access public

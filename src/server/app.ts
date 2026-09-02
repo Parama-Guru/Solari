@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { AppConfig } from '../config.ts';
-import { rescue } from '../pipeline/rescue.ts';
+import { rescue, type RescueOptions } from '../pipeline/rescue.ts';
 import { Queue, QueueFullError } from '../queue/queue.ts';
 import { SolariClient, SolariError } from '../solari/client.ts';
+import { RateLimiter } from './rate-limit.ts';
 import { ResultStore } from './store.ts';
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -28,7 +29,14 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 
 function sendBytes(res: ServerResponse, contentType: string, bytes: Uint8Array, filename?: string): void {
   const headers: Record<string, string> = { 'Content-Type': contentType, 'Cache-Control': 'no-store' };
-  if (filename) headers['Content-Disposition'] = `attachment; filename="${filename}"`;
+  if (filename) {
+    // RFC 6266: a quoted string cannot carry backslashes or quotes raw, and anything
+    // non-ASCII needs the filename* form, so both are sent and the client picks.
+    const quoted = filename.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const ascii = quoted.replace(/[^\x20-\x7e]/g, '_');
+    headers['Content-Disposition'] =
+      `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  }
   res.writeHead(200, headers);
   res.end(bytes);
 }
@@ -64,6 +72,25 @@ export function createApp(deps: AppDependencies): Server {
 
   // VM time is the billable unit, so it is counted rather than estimated.
   const metrics = { rescues: 0, recovered: 0, vmMs: 0 };
+  const limiter = new RateLimiter(config.rateLimitPerMinute, 60_000);
+
+  // Rolling day of VM spend, so a runaway client cannot quietly empty an account.
+  const spend: Array<{ at: number; ms: number }> = [];
+  const DAY_MS = 24 * 60 * 60_000;
+
+  function vmMsToday(now = Date.now()): number {
+    while (spend.length > 0 && now - spend[0]!.at > DAY_MS) spend.shift();
+    return spend.reduce((sum, s) => sum + s.ms, 0);
+  }
+
+  function callerOf(req: IncomingMessage): string {
+    if (config.trustProxy) {
+      const forwarded = req.headers['x-forwarded-for'];
+      const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    return req.socket.remoteAddress ?? 'unknown';
+  }
 
   return createServer((req, res) => {
     // A rescue legitimately takes tens of seconds, but a socket that goes quiet for two
@@ -99,16 +126,39 @@ export function createApp(deps: AppDependencies): Server {
         vmSecondsPerRescue: metrics.rescues
           ? Number((metrics.vmMs / metrics.rescues / 1000).toFixed(1))
           : 0,
+        vmSecondsToday: Math.round(vmMsToday() / 1000),
+        vmSecondsBudget: config.maxVmSecondsPerDay || null,
+        store: store.stats,
       });
       return;
     }
 
     if (req.method === 'PUT' && path === '/api/rescue') {
+      const budget = config.maxVmSecondsPerDay;
+      if (budget > 0 && vmMsToday() / 1000 >= budget) {
+        sendJson(res, 429, {
+          error: 'This server has reached its daily machine-time budget. Try again tomorrow.',
+        });
+        return;
+      }
+
+      const decision = limiter.take(callerOf(req));
+      if (!decision.allowed) {
+        res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+        sendJson(res, 429, {
+          error: `Too many rescues from your address. Try again in ${decision.retryAfterSeconds}s.`,
+        });
+        return;
+      }
+
+      const pagesParam = Number(url.searchParams.get('pages'));
       await handleRescue(
         req,
         res,
         displayName(url.searchParams.get('name')),
         url.searchParams.get('retain') !== 'none',
+        Number.isFinite(pagesParam) && pagesParam > 0 ? pagesParam : undefined,
+        url.searchParams.get('stream') === '1',
       );
       return;
     }
@@ -152,32 +202,62 @@ export function createApp(deps: AppDependencies): Server {
     res: ServerResponse,
     name: string,
     retain: boolean,
+    maxPages?: number,
+    stream = false,
   ): Promise<void> {
+    // Once a stream has started the status line is already sent, so later failures have to
+    // travel as a line in the body rather than as an HTTP status.
+    let streaming = false;
+    const line = (payload: unknown): void => {
+      res.write(`${JSON.stringify(payload)}\n`);
+    };
+    const fail = (status: number, message: string): void => {
+      if (streaming) {
+        line({ error: message });
+        res.end();
+      } else {
+        sendJson(res, status, { error: message });
+      }
+    };
+
     let bytes: Uint8Array;
     try {
       bytes = await readBody(req);
     } catch (error) {
       if (error instanceof PayloadTooLargeError) {
-        sendJson(res, 413, { error: `Files are limited to ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.` });
+        fail(413, `Files are limited to ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.`);
         return;
       }
       throw error;
     }
 
     if (bytes.byteLength === 0) {
-      sendJson(res, 400, { error: 'The upload was empty.' });
+      fail(400, 'The upload was empty.');
       return;
     }
 
+    if (stream) {
+      streaming = true;
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Accel-Buffering': 'no',
+      });
+    }
+
     try {
-      const outcome = await queue.run(() =>
-        rescue(client, { filename: name, bytes }, { template: config.template }),
-      );
+      const options: RescueOptions = { template: config.template };
+      if (maxPages !== undefined) options.maxPages = maxPages;
+      if (streaming) options.onProgress = (progress) => line({ progress });
+
+      const outcome = await queue.run(() => rescue(client, { filename: name, bytes }, options));
       const { timings } = outcome.report;
       metrics.rescues += 1;
       if (outcome.report.recovered) metrics.recovered += 1;
-      metrics.vmMs +=
+      const vmMs =
         timings.createMs + timings.uploadMs + timings.attemptsMs + timings.downloadMs + timings.destroyMs;
+      metrics.vmMs += vmMs;
+      spend.push({ at: Date.now(), ms: vmMs });
 
       const summary = {
         report: { ...outcome.report, outputs: { ...outcome.report.outputs, text: '' } },
@@ -190,28 +270,40 @@ export function createApp(deps: AppDependencies): Server {
         const inlineBytes = (pdf?.byteLength ?? 0) + pages.reduce((sum, page) => sum + page.byteLength, 0);
 
         if (inlineBytes > INLINE_LIMIT_BYTES) {
-          sendJson(res, 413, {
-            error:
-              'The recovery is too large to return without storing it. Retry without no-retention mode, ' +
+          fail(
+            413,
+            'The recovery is too large to return without storing it. Retry without no-retention mode, ' +
               'and the result will be held for 30 minutes instead.',
-          });
+          );
           return;
         }
 
-        sendJson(res, 200, {
+        const body = {
           ...summary,
           id: null,
           retained: false,
           pdfBase64: pdf ? Buffer.from(pdf).toString('base64') : null,
           pagesBase64: pages.map((page) => Buffer.from(page).toString('base64')),
-        });
+        };
+        if (streaming) {
+          line({ result: body });
+          res.end();
+        } else {
+          sendJson(res, 200, body);
+        }
         return;
       }
 
-      sendJson(res, 200, { ...summary, id: store.put(outcome), retained: true });
+      const body = { ...summary, id: store.put(outcome), retained: true };
+      if (streaming) {
+        line({ result: body });
+        res.end();
+      } else {
+        sendJson(res, 200, body);
+      }
     } catch (error) {
       if (error instanceof QueueFullError) {
-        sendJson(res, 503, { error: error.message });
+        fail(503, error.message);
         return;
       }
       if (error instanceof SolariError) {
@@ -222,7 +314,7 @@ export function createApp(deps: AppDependencies): Server {
             : error.status === 402 || error.status === 403
               ? 'The rescue service is not currently provisioned. This is our problem, not your file.'
               : 'The rescue machine failed to start. Please try again.';
-        sendJson(res, 503, { error: message });
+        fail(503, message);
         return;
       }
       throw error;

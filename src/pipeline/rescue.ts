@@ -4,6 +4,8 @@ import {
   guestInputPath,
   HOP_DIR,
   LOSSY_STRATEGIES,
+  ocrCommand,
+  OCR_TEXT_THRESHOLD,
   OUT_DIR,
   OUT_PDF,
   planFor,
@@ -15,7 +17,6 @@ import type { CreateSandboxOptions, SolariClient } from '../solari/client.ts';
 import { withSandbox, type SandboxLifecycle } from '../solari/session.ts';
 
 const MINUTE = 60_000;
-const MAX_PAGES = 8;
 const TEXT_PATH = `${OUT_DIR}/text.txt`;
 
 export type RescueInput = {
@@ -34,9 +35,30 @@ export type RescueOutcome = {
   artifacts: RescueArtifacts;
 };
 
+export type RescueStage = 'booting' | 'uploading' | 'attempting' | 'ocr' | 'downloading' | 'destroying';
+
+export type RescueProgress = {
+  stage: RescueStage;
+  /** Set on `attempting`: the strategy being tried right now. */
+  label?: string;
+  /** Set on `attempting`: 1-based position in the plan, and how many there are. */
+  step?: number;
+  of?: number;
+};
+
 export type RescueOptions = {
   template: string;
+  /** Page images to bring back. Defaults to 8; each one is a download and a transfer cost. */
+  maxPages?: number;
+  /** Called as the rescue moves between stages. Boot is most of the wait, so this exists
+   *  to show that something is happening rather than to make it faster. */
+  onProgress?: (progress: RescueProgress) => void;
 };
+
+const PAGE_LIMIT = { min: 1, max: 50, fallback: 8 } as const;
+
+const pageLimitOf = (options: RescueOptions): number =>
+  Math.min(PAGE_LIMIT.max, Math.max(PAGE_LIMIT.min, Math.trunc(options.maxPages ?? PAGE_LIMIT.fallback)));
 
 export type BatchItem = {
   /** `timings.createMs` is this file's share of one shared boot, not a boot of its own. */
@@ -62,6 +84,7 @@ type GuestWork = {
   winner: string | null;
   uploadMs: number;
   downloadMs: number;
+  ocred: boolean;
 };
 
 type FileRun = {
@@ -111,7 +134,13 @@ function parseCollected(stdout: string): Collected {
 }
 
 /** One file, start to finish, inside a sandbox that is already running. */
-async function runFile(client: SolariClient, id: string, input: RescueInput): Promise<FileRun> {
+async function runFile(
+  client: SolariClient,
+  id: string,
+  input: RescueInput,
+  maxPages: number,
+  report: (progress: RescueProgress) => void,
+): Promise<FileRun> {
   const started = Date.now();
   const detection = detect(input.bytes, input.filename);
   const inputPath = guestInputPath(detection);
@@ -122,13 +151,16 @@ async function runFile(client: SolariClient, id: string, input: RescueInput): Pr
   await sh(`rm -f ${WORK_DIR}/input.*`, MINUTE);
 
   const uploadStarted = Date.now();
+  report({ stage: 'uploading' });
   await client.upload(id, inputPath, input.bytes);
   const uploadMs = Date.now() - uploadStarted;
 
   let pages: PageInfo[] = [];
   let winner: string | null = null;
 
-  for (const strategy of planFor(detection)) {
+  const plan = planFor(detection);
+  for (const [index, strategy] of plan.entries()) {
+    report({ stage: 'attempting', label: strategy.label, step: index + 1, of: plan.length });
     const command = strategy.build(inputPath, OUT_DIR);
     const attemptStarted = Date.now();
     const record = (outcome: Attempt['outcome'], exitCode: number | null, detail: string): void => {
@@ -169,23 +201,42 @@ async function runFile(client: SolariClient, id: string, input: RescueInput): Pr
 
   const artifacts: RescueArtifacts = { pdf: null, pages: [], text: '' };
   const downloadStarted = Date.now();
+  let ocred = false;
+
+  const readText = async (): Promise<string> => {
+    try {
+      return new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
+    } catch {
+      return '';
+    }
+  };
 
   if (winner) {
-    artifacts.pdf = await client.download(id, OUT_PDF);
-    for (const page of pages.slice(0, MAX_PAGES)) {
-      artifacts.pages.push(await client.download(id, page.path));
+    report({ stage: 'downloading' });
+    artifacts.text = await readText();
+
+    // A scan renders pages but carries no text layer, and reading the pixels is the only
+    // way to get words out of it.
+    if (artifacts.text.length < OCR_TEXT_THRESHOLD && pages.length > 0) {
+      report({ stage: 'ocr' });
+      const ocr = ocrCommand(OUT_DIR, TEXT_PATH);
+      const run = await client.exec(id, ocr.cmd, ocr.args, ocr.timeoutMs);
+      if (run.stdout.includes('OCRED=yes')) {
+        artifacts.text = await readText();
+        ocred = artifacts.text.length > 0;
+      }
     }
-    try {
-      artifacts.text = new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
-    } catch {
-      artifacts.text = '';
+
+    artifacts.pdf = await client.download(id, OUT_PDF);
+    for (const page of pages.slice(0, maxPages)) {
+      artifacts.pages.push(await client.download(id, page.path));
     }
   }
 
   return {
     detection,
     attempts,
-    guest: { artifacts, pages, winner, uploadMs, downloadMs: Date.now() - downloadStarted },
+    guest: { artifacts, pages, winner, uploadMs, downloadMs: Date.now() - downloadStarted, ocred },
     wallMs: Date.now() - started,
   };
 }
@@ -214,6 +265,7 @@ function buildReport(
     },
     recovered: winner !== null,
     degraded: winner !== null && LOSSY_STRATEGIES.has(winner),
+    ocr: guest.ocred,
     nextStep: winner ? null : nextStepFor(detection),
     totalMs,
     timings: {
@@ -245,12 +297,15 @@ export async function rescue(
   options: RescueOptions,
 ): Promise<RescueOutcome> {
   const started = Date.now();
+  const report = options.onProgress ?? (() => {});
 
+  report({ stage: 'booting' });
   const { value: run, lifecycle } = await withSandbox<FileRun>(
     client,
     sandboxOptions(options, 'rescue'),
-    (sandbox) => runFile(client, sandbox.sandboxId, input),
+    (sandbox) => runFile(client, sandbox.sandboxId, input, pageLimitOf(options), report),
   );
+  report({ stage: 'destroying' });
 
   return {
     report: buildReport(input, run, lifecycle, lifecycle.createMs, lifecycle.destroyMs, Date.now() - started),
@@ -275,7 +330,11 @@ export async function rescueBatch(
     sandboxOptions(options, 'batch'),
     async (sandbox) => {
       const collected: FileRun[] = [];
-      for (const input of inputs) collected.push(await runFile(client, sandbox.sandboxId, input));
+      const limit = pageLimitOf(options);
+      const report = options.onProgress ?? (() => {});
+      for (const input of inputs) {
+        collected.push(await runFile(client, sandbox.sandboxId, input, limit, report));
+      }
       return collected;
     },
   );
