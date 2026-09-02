@@ -52,7 +52,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json && node src/scripts/copy-assets.ts",
     "prepare": "tsc -p tsconfig.build.json && node src/scripts/copy-assets.ts",
-    "test": "node --test",
+    "test": "node --test \"src/**/*.test.ts\"",
     "doctor": "node src/scripts/doctor.ts",
     "provision": "node src/scripts/provision.ts",
     "fixtures": "node src/scripts/make-fixtures.ts",
