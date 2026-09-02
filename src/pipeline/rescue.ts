@@ -4,6 +4,8 @@ import {
   guestInputPath,
   HOP_DIR,
   LOSSY_STRATEGIES,
+  ocrCommand,
+  OCR_TEXT_THRESHOLD,
   OUT_DIR,
   OUT_PDF,
   planFor,
@@ -33,7 +35,7 @@ export type RescueOutcome = {
   artifacts: RescueArtifacts;
 };
 
-export type RescueStage = 'booting' | 'uploading' | 'attempting' | 'downloading' | 'destroying';
+export type RescueStage = 'booting' | 'uploading' | 'attempting' | 'ocr' | 'downloading' | 'destroying';
 
 export type RescueProgress = {
   stage: RescueStage;
@@ -82,6 +84,7 @@ type GuestWork = {
   winner: string | null;
   uploadMs: number;
   downloadMs: number;
+  ocred: boolean;
 };
 
 type FileRun = {
@@ -198,24 +201,42 @@ async function runFile(
 
   const artifacts: RescueArtifacts = { pdf: null, pages: [], text: '' };
   const downloadStarted = Date.now();
+  let ocred = false;
+
+  const readText = async (): Promise<string> => {
+    try {
+      return new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
+    } catch {
+      return '';
+    }
+  };
 
   if (winner) {
     report({ stage: 'downloading' });
+    artifacts.text = await readText();
+
+    // A scan renders pages but carries no text layer, and reading the pixels is the only
+    // way to get words out of it.
+    if (artifacts.text.length < OCR_TEXT_THRESHOLD && pages.length > 0) {
+      report({ stage: 'ocr' });
+      const ocr = ocrCommand(OUT_DIR, TEXT_PATH);
+      const run = await client.exec(id, ocr.cmd, ocr.args, ocr.timeoutMs);
+      if (run.stdout.includes('OCRED=yes')) {
+        artifacts.text = await readText();
+        ocred = artifacts.text.length > 0;
+      }
+    }
+
     artifacts.pdf = await client.download(id, OUT_PDF);
     for (const page of pages.slice(0, maxPages)) {
       artifacts.pages.push(await client.download(id, page.path));
-    }
-    try {
-      artifacts.text = new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
-    } catch {
-      artifacts.text = '';
     }
   }
 
   return {
     detection,
     attempts,
-    guest: { artifacts, pages, winner, uploadMs, downloadMs: Date.now() - downloadStarted },
+    guest: { artifacts, pages, winner, uploadMs, downloadMs: Date.now() - downloadStarted, ocred },
     wallMs: Date.now() - started,
   };
 }
@@ -244,6 +265,7 @@ function buildReport(
     },
     recovered: winner !== null,
     degraded: winner !== null && LOSSY_STRATEGIES.has(winner),
+    ocr: guest.ocred,
     nextStep: winner ? null : nextStepFor(detection),
     totalMs,
     timings: {

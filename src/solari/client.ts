@@ -49,6 +49,9 @@ export class SolariError extends Error {
 }
 
 const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+// A concurrency refusal can be the previous sandbox still releasing its slot.
+const CONCURRENCY_ATTEMPTS = 4;
 const MAX_ATTEMPTS = 5;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -104,7 +107,29 @@ export class SolariClient {
     throw lastError ?? new SolariError(0, null, `Request to ${path} failed.`, false);
   }
 
+  /**
+   * Creating is the one call where a 429 is often transient: destroying the previous sandbox
+   * returns before the slot is actually released, so a run that works through files one at a
+   * time can be refused a machine it is entitled to. Observed on a 17-file batch. This waits
+   * a few times rather than retrying hard, since a genuine cap will not clear.
+   */
   async createSandbox(options: CreateSandboxOptions = {}): Promise<Sandbox> {
+    let lastError: SolariError | null = null;
+
+    for (let attempt = 0; attempt < CONCURRENCY_ATTEMPTS; attempt++) {
+      if (attempt > 0) await sleep(2_000 * attempt);
+      try {
+        return await this.#createOnce(options);
+      } catch (error) {
+        if (!(error instanceof SolariError) || error.status !== 429) throw error;
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new SolariError(429, null, 'No sandbox slot became available.', false);
+  }
+
+  async #createOnce(options: CreateSandboxOptions = {}): Promise<Sandbox> {
     const body: Record<string, unknown> = { kind: options.kind ?? 'sandbox' };
     if (options.template) body['template'] = options.template;
     if (options.fromSnapshot) body['fromSnapshot'] = options.fromSnapshot;
@@ -124,13 +149,18 @@ export class SolariClient {
     );
   }
 
+  /**
+   * Retries gateway failures. Every command this pipeline issues is safe to repeat: the
+   * output directory is cleared first, converters overwrite, and collection only reads.
+   * Losing a booted machine to a transient 502 costs the whole rescue, which is worse.
+   */
   async exec(id: string, cmd: string, args: string[], timeoutMs: number, cwd?: string): Promise<ExecResult> {
     const body: Record<string, unknown> = { cmd, args, timeoutMs };
     if (cwd) body['cwd'] = cwd;
     return this.#request<ExecResult>(
       `/sandboxes/${encodeId(id)}/exec`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-      false,
+      true,
       timeoutMs + 30_000,
     );
   }

@@ -221,3 +221,23 @@ export const verifyAndCollectCommand = (outDir: string, pdfPath: string, textPat
 
   return { cmd: 'sh', args: ['-c', script], timeoutMs: 5 * MINUTE };
 };
+
+/** Below this many characters, a document has no usable text layer and is worth OCR-ing. */
+export const OCR_TEXT_THRESHOLD = 24;
+
+/**
+ * Reads the pixels when there is no text layer, which is the only way to get words out of a
+ * scan. Emits OCRED=yes when it actually replaced the text, so the report can say so.
+ */
+export const ocrCommand = (outDir: string, textPath: string): Command => {
+  const script = [
+    'if ! command -v tesseract >/dev/null 2>&1; then echo OCRED=unavailable; exit 0; fi',
+    `PAGES=$(ls -1 ${outDir}/page*.png 2>/dev/null | sort)`,
+    'if [ -z "$PAGES" ]; then echo OCRED=no; exit 0; fi',
+    `: > ${outDir}/ocr.txt`,
+    `for f in $PAGES; do tesseract "$f" stdout 2>/dev/null >> ${outDir}/ocr.txt || true; done`,
+    `if [ -s ${outDir}/ocr.txt ]; then cp ${outDir}/ocr.txt ${textPath}; echo OCRED=yes; else echo OCRED=no; fi`,
+  ].join('; ');
+
+  return { cmd: 'sh', args: ['-c', script], timeoutMs: 5 * MINUTE };
+};
