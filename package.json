@@ -36,10 +36,12 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "openable-mcp": "dist/mcp/server.js"
+    "openable-mcp": "dist/mcp/server.js",
+    "openable-playground": "dist/server/main.js"
   },
   "files": [
     "dist",
+    "samples",
     "README.md",
     "LICENSE"
   ],

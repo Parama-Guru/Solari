@@ -25,6 +25,8 @@ export type AppConfig = {
   rateLimitPerMinute: number;
   /** Hard ceiling on VM seconds bought in any rolling day. 0 disables it. */
   maxVmSecondsPerDay: number;
+  /** Megabytes of finished results held in memory before the oldest are dropped. */
+  maxResultMb: number;
   /** Only honour X-Forwarded-For when something trusted actually sets it. */
   trustProxy: boolean;
 };
@@ -43,6 +45,7 @@ export function loadConfig(): AppConfig {
     port: Number(process.env['PORT'] ?? '3000'),
     rateLimitPerMinute: Number(process.env['OPENABLE_RATE_LIMIT_PER_MINUTE'] ?? '5'),
     maxVmSecondsPerDay: Number(process.env['OPENABLE_MAX_VM_SECONDS_PER_DAY'] ?? '0'),
+    maxResultMb: Number(process.env['OPENABLE_MAX_RESULT_MB'] ?? '256'),
     trustProxy: process.env['OPENABLE_TRUST_PROXY'] === 'true',
   };
 }

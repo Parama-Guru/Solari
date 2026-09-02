@@ -1,11 +1,19 @@
 app = "openable"
 primary_region = "iad"
 
+# The server drains in-flight rescues for up to 45s on SIGTERM. Killing it sooner would
+# orphan a running Solari VM, which the account keeps paying for.
+kill_signal = "SIGTERM"
+kill_timeout = "60s"
+
 [build]
 
 [env]
   PORT = "3000"
   SOLARI_MAX_CONCURRENCY = "1"
+  # Kept well under the machine's memory, since results are held in process.
+  OPENABLE_MAX_RESULT_MB = "128"
+  OPENABLE_RATE_LIMIT_PER_MINUTE = "5"
 
 [http_service]
   internal_port = 3000

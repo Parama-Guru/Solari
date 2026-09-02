@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { loadConfig } from '../config.ts';
 import { Queue } from '../queue/queue.ts';
 import { SolariClient } from '../solari/client.ts';
@@ -26,7 +27,7 @@ const app = createApp({
   config,
   client: new SolariClient({ apiKey: config.apiKey, baseUrl: config.baseUrl }),
   queue,
-  store: new ResultStore(),
+  store: new ResultStore(30 * 60_000, 200, config.maxResultMb * 1024 * 1024),
 });
 
 app.listen(config.port, () => {
