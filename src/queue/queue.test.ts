@@ -4,6 +4,37 @@ import { Queue, QueueFullError } from './queue.ts';
 
 const tick = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+test('drained resolves immediately when nothing is running', async () => {
+  await new Queue(1).drained();
+});
+
+test('drained waits for running and queued work, so shutdown cannot orphan a VM', async () => {
+  const queue = new Queue(1);
+  let finished = 0;
+
+  const work = Array.from({ length: 3 }, () =>
+    queue.run(async () => {
+      await tick(10);
+      finished++;
+    }),
+  );
+
+  await queue.drained();
+  assert.equal(finished, 3, 'every task completed before drained resolved');
+  await Promise.all(work);
+});
+
+test('drained still resolves when a task throws', async () => {
+  const queue = new Queue(1);
+  const failing = queue.run(async () => {
+    await tick(5);
+    throw new Error('boom');
+  });
+
+  await assert.rejects(failing);
+  await queue.drained();
+});
+
 test('never runs more tasks at once than the cap allows', async () => {
   const queue = new Queue(1);
   let concurrent = 0;
@@ -40,8 +71,7 @@ test('rejects new work once the waiting room is full', async () => {
   await Promise.all([held, queued]);
 });
 
-test('runs two at a time when the plan allows it', async () => {
-  const queue = new Queue(2);
+test('runs two at a time when the plan allows it', async () => {  const queue = new Queue(2);
   let peak = 0;
   let concurrent = 0;
 

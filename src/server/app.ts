@@ -66,6 +66,12 @@ export function createApp(deps: AppDependencies): Server {
   const metrics = { rescues: 0, recovered: 0, vmMs: 0 };
 
   return createServer((req, res) => {
+    // A rescue legitimately takes tens of seconds, but a socket that goes quiet for two
+    // minutes is either gone or holding the connection open on purpose.
+    req.socket.setTimeout(120_000, () => {
+      req.socket.destroy();
+    });
+
     void handle(req, res).catch((error: unknown) => {
       console.error('[server] unhandled:', error);
       if (!res.headersSent) sendJson(res, 500, { error: 'Something broke on our side.' });
