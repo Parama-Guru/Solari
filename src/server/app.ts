@@ -10,6 +10,9 @@ import { ResultStore } from './store.ts';
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const TEXT_PREVIEW_LIMIT = 20_000;
 
+// Offered by the playground so a visitor without a broken file can still try it.
+const SAMPLE_FILES: ReadonlySet<string> = new Set(['broken.pdf', 'truncated.doc', 'logo.wmf']);
+
 // No-retention replies carry the artifacts in the body, so they need a ceiling of their own.
 const INLINE_LIMIT_BYTES = 12 * 1024 * 1024;
 
@@ -110,7 +113,27 @@ export function createApp(deps: AppDependencies): Server {
       return;
     }
 
+    if (req.method === 'GET' && path.startsWith('/api/sample/')) {
+      handleSample(res, decodeURIComponent(path.slice('/api/sample/'.length)));
+      return;
+    }
+
     sendJson(res, 404, { error: 'Not found.' });
+  }
+
+  // An allow-list, not a path join, so no request can reach outside the fixture directory.
+  function handleSample(res: ServerResponse, name: string): void {
+    if (!SAMPLE_FILES.has(name)) {
+      sendJson(res, 404, { error: 'Unknown sample.' });
+      return;
+    }
+    try {
+      const bytes = readFileSync(join(process.cwd(), 'fixtures', name));
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
+      res.end(bytes);
+    } catch {
+      sendJson(res, 404, { error: 'Samples are not built on this server. Run `npm run fixtures`.' });
+    }
   }
 
   async function handleRescue(
