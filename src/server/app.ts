@@ -121,19 +121,24 @@ export function createApp(deps: AppDependencies): Server {
     sendJson(res, 404, { error: 'Not found.' });
   }
 
-  // An allow-list, not a path join, so no request can reach outside the fixture directory.
+  // An allow-list, not a path join, so no request can reach outside the sample directories.
   function handleSample(res: ServerResponse, name: string): void {
     if (!SAMPLE_FILES.has(name)) {
       sendJson(res, 404, { error: 'Unknown sample.' });
       return;
     }
-    try {
-      const bytes = readFileSync(join(process.cwd(), 'fixtures', name));
-      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
-      res.end(bytes);
-    } catch {
-      sendJson(res, 404, { error: 'Samples are not built on this server. Run `npm run fixtures`.' });
+    // `samples/` ships with the repo; `fixtures/` is generated and gitignored.
+    for (const dir of ['samples', 'fixtures']) {
+      try {
+        const bytes = readFileSync(join(process.cwd(), dir, name));
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
+        res.end(bytes);
+        return;
+      } catch {
+        continue;
+      }
     }
+    sendJson(res, 404, { error: 'Samples are not available on this server.' });
   }
 
   async function handleRescue(
