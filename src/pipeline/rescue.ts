@@ -33,10 +33,24 @@ export type RescueOutcome = {
   artifacts: RescueArtifacts;
 };
 
+export type RescueStage = 'booting' | 'uploading' | 'attempting' | 'downloading' | 'destroying';
+
+export type RescueProgress = {
+  stage: RescueStage;
+  /** Set on `attempting`: the strategy being tried right now. */
+  label?: string;
+  /** Set on `attempting`: 1-based position in the plan, and how many there are. */
+  step?: number;
+  of?: number;
+};
+
 export type RescueOptions = {
   template: string;
   /** Page images to bring back. Defaults to 8; each one is a download and a transfer cost. */
   maxPages?: number;
+  /** Called as the rescue moves between stages. Boot is most of the wait, so this exists
+   *  to show that something is happening rather than to make it faster. */
+  onProgress?: (progress: RescueProgress) => void;
 };
 
 const PAGE_LIMIT = { min: 1, max: 50, fallback: 8 } as const;
@@ -122,6 +136,7 @@ async function runFile(
   id: string,
   input: RescueInput,
   maxPages: number,
+  report: (progress: RescueProgress) => void,
 ): Promise<FileRun> {
   const started = Date.now();
   const detection = detect(input.bytes, input.filename);
@@ -133,13 +148,16 @@ async function runFile(
   await sh(`rm -f ${WORK_DIR}/input.*`, MINUTE);
 
   const uploadStarted = Date.now();
+  report({ stage: 'uploading' });
   await client.upload(id, inputPath, input.bytes);
   const uploadMs = Date.now() - uploadStarted;
 
   let pages: PageInfo[] = [];
   let winner: string | null = null;
 
-  for (const strategy of planFor(detection)) {
+  const plan = planFor(detection);
+  for (const [index, strategy] of plan.entries()) {
+    report({ stage: 'attempting', label: strategy.label, step: index + 1, of: plan.length });
     const command = strategy.build(inputPath, OUT_DIR);
     const attemptStarted = Date.now();
     const record = (outcome: Attempt['outcome'], exitCode: number | null, detail: string): void => {
@@ -182,6 +200,7 @@ async function runFile(
   const downloadStarted = Date.now();
 
   if (winner) {
+    report({ stage: 'downloading' });
     artifacts.pdf = await client.download(id, OUT_PDF);
     for (const page of pages.slice(0, maxPages)) {
       artifacts.pages.push(await client.download(id, page.path));
@@ -256,12 +275,15 @@ export async function rescue(
   options: RescueOptions,
 ): Promise<RescueOutcome> {
   const started = Date.now();
+  const report = options.onProgress ?? (() => {});
 
+  report({ stage: 'booting' });
   const { value: run, lifecycle } = await withSandbox<FileRun>(
     client,
     sandboxOptions(options, 'rescue'),
-    (sandbox) => runFile(client, sandbox.sandboxId, input, pageLimitOf(options)),
+    (sandbox) => runFile(client, sandbox.sandboxId, input, pageLimitOf(options), report),
   );
+  report({ stage: 'destroying' });
 
   return {
     report: buildReport(input, run, lifecycle, lifecycle.createMs, lifecycle.destroyMs, Date.now() - started),
@@ -287,7 +309,10 @@ export async function rescueBatch(
     async (sandbox) => {
       const collected: FileRun[] = [];
       const limit = pageLimitOf(options);
-      for (const input of inputs) collected.push(await runFile(client, sandbox.sandboxId, input, limit));
+      const report = options.onProgress ?? (() => {});
+      for (const input of inputs) {
+        collected.push(await runFile(client, sandbox.sandboxId, input, limit, report));
+      }
       return collected;
     },
   );

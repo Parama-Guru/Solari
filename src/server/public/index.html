@@ -740,13 +740,13 @@ document.querySelectorAll('.chip').forEach((chip) => {
   });
 });
 
-const STEPS = [
-  'Booting a clean machine…',
-  'Uploading your file…',
-  'Trying to open it…',
-  'Rendering the pages…',
-  'Destroying the machine…',
-];
+const STAGE_TEXT = {
+  booting: 'Booting a clean machine… this is most of the wait',
+  uploading: 'Uploading your file…',
+  attempting: 'Trying to open it…',
+  downloading: 'Rendering the pages…',
+  destroying: 'Destroying the machine…',
+};
 
 async function send(file) {
   out.innerHTML = `
@@ -754,27 +754,63 @@ async function send(file) {
       <div class="spinner"></div>
       <div>
         Opening <strong>${esc(file.name)}</strong>
-        <div class="steps" id="stepline">${esc(STEPS[0])}</div>
+        <div class="steps" id="stepline">${esc(STAGE_TEXT.booting)}</div>
       </div>
     </div>`;
 
-  let s = 0;
-  const stepTimer = setInterval(() => {
-    s = Math.min(s + 1, STEPS.length - 1);
+  const setStep = (text) => {
     const el = $('stepline');
-    if (el) el.textContent = STEPS[s];
-  }, 3200);
+    if (el) el.textContent = text;
+  };
 
   try {
-    const query = '/api/rescue?name=' + encodeURIComponent(file.name) + (noretain.checked ? '&retain=none' : '');
+    const query =
+      '/api/rescue?stream=1&name=' + encodeURIComponent(file.name) +
+      (noretain.checked ? '&retain=none' : '');
     const res = await fetch(query, { method: 'PUT', body: file });
-    const data = await res.json();
-    if (!res.ok) { out.innerHTML = `<p class="err">${esc(data.error || 'That did not work.')}</p>`; return; }
-    render_result(data);
+
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      out.innerHTML = `<p class="err">${esc(data.error || 'That did not work.')}</p>`;
+      return;
+    }
+
+    // NDJSON: progress lines as the rescue moves, then one final result line.
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finished = false;
+
+    while (!finished) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+
+      let newline;
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        const raw = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!raw) continue;
+
+        const message = JSON.parse(raw);
+        if (message.progress) {
+          const p = message.progress;
+          setStep(
+            p.stage === 'attempting' && p.label
+              ? `Trying ${p.label}… (${p.step} of ${p.of})`
+              : STAGE_TEXT[p.stage] ?? p.stage,
+          );
+        } else if (message.error) {
+          out.innerHTML = `<p class="err">${esc(message.error)}</p>`;
+          finished = true;
+        } else if (message.result) {
+          render_result(message.result);
+          finished = true;
+        }
+      }
+    }
   } catch {
     out.innerHTML = `<p class="err">The upload was interrupted. Please try again.</p>`;
-  } finally {
-    clearInterval(stepTimer);
   }
 }
 

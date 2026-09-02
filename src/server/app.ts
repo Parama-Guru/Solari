@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { AppConfig } from '../config.ts';
-import { rescue } from '../pipeline/rescue.ts';
+import { rescue, type RescueOptions } from '../pipeline/rescue.ts';
 import { Queue, QueueFullError } from '../queue/queue.ts';
 import { SolariClient, SolariError } from '../solari/client.ts';
 import { RateLimiter } from './rate-limit.ts';
@@ -158,6 +158,7 @@ export function createApp(deps: AppDependencies): Server {
         displayName(url.searchParams.get('name')),
         url.searchParams.get('retain') !== 'none',
         Number.isFinite(pagesParam) && pagesParam > 0 ? pagesParam : undefined,
+        url.searchParams.get('stream') === '1',
       );
       return;
     }
@@ -202,33 +203,54 @@ export function createApp(deps: AppDependencies): Server {
     name: string,
     retain: boolean,
     maxPages?: number,
+    stream = false,
   ): Promise<void> {
+    // Once a stream has started the status line is already sent, so later failures have to
+    // travel as a line in the body rather than as an HTTP status.
+    let streaming = false;
+    const line = (payload: unknown): void => {
+      res.write(`${JSON.stringify(payload)}\n`);
+    };
+    const fail = (status: number, message: string): void => {
+      if (streaming) {
+        line({ error: message });
+        res.end();
+      } else {
+        sendJson(res, status, { error: message });
+      }
+    };
+
     let bytes: Uint8Array;
     try {
       bytes = await readBody(req);
     } catch (error) {
       if (error instanceof PayloadTooLargeError) {
-        sendJson(res, 413, { error: `Files are limited to ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.` });
+        fail(413, `Files are limited to ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.`);
         return;
       }
       throw error;
     }
 
     if (bytes.byteLength === 0) {
-      sendJson(res, 400, { error: 'The upload was empty.' });
+      fail(400, 'The upload was empty.');
       return;
     }
 
+    if (stream) {
+      streaming = true;
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Accel-Buffering': 'no',
+      });
+    }
+
     try {
-      const outcome = await queue.run(() =>
-        rescue(
-          client,
-          { filename: name, bytes },
-          maxPages === undefined
-            ? { template: config.template }
-            : { template: config.template, maxPages },
-        ),
-      );
+      const options: RescueOptions = { template: config.template };
+      if (maxPages !== undefined) options.maxPages = maxPages;
+      if (streaming) options.onProgress = (progress) => line({ progress });
+
+      const outcome = await queue.run(() => rescue(client, { filename: name, bytes }, options));
       const { timings } = outcome.report;
       metrics.rescues += 1;
       if (outcome.report.recovered) metrics.recovered += 1;
@@ -248,28 +270,40 @@ export function createApp(deps: AppDependencies): Server {
         const inlineBytes = (pdf?.byteLength ?? 0) + pages.reduce((sum, page) => sum + page.byteLength, 0);
 
         if (inlineBytes > INLINE_LIMIT_BYTES) {
-          sendJson(res, 413, {
-            error:
-              'The recovery is too large to return without storing it. Retry without no-retention mode, ' +
+          fail(
+            413,
+            'The recovery is too large to return without storing it. Retry without no-retention mode, ' +
               'and the result will be held for 30 minutes instead.',
-          });
+          );
           return;
         }
 
-        sendJson(res, 200, {
+        const body = {
           ...summary,
           id: null,
           retained: false,
           pdfBase64: pdf ? Buffer.from(pdf).toString('base64') : null,
           pagesBase64: pages.map((page) => Buffer.from(page).toString('base64')),
-        });
+        };
+        if (streaming) {
+          line({ result: body });
+          res.end();
+        } else {
+          sendJson(res, 200, body);
+        }
         return;
       }
 
-      sendJson(res, 200, { ...summary, id: store.put(outcome), retained: true });
+      const body = { ...summary, id: store.put(outcome), retained: true };
+      if (streaming) {
+        line({ result: body });
+        res.end();
+      } else {
+        sendJson(res, 200, body);
+      }
     } catch (error) {
       if (error instanceof QueueFullError) {
-        sendJson(res, 503, { error: error.message });
+        fail(503, error.message);
         return;
       }
       if (error instanceof SolariError) {
@@ -280,7 +314,7 @@ export function createApp(deps: AppDependencies): Server {
             : error.status === 402 || error.status === 403
               ? 'The rescue service is not currently provisioned. This is our problem, not your file.'
               : 'The rescue machine failed to start. Please try again.';
-        sendJson(res, 503, { error: message });
+        fail(503, message);
         return;
       }
       throw error;
