@@ -22,7 +22,13 @@ than joining a user-supplied path, so it cannot be walked outside the fixture di
 
 **Teardown is guaranteed, and audited when it fails.** Destruction happens in a `finally`, the
 report states the time it happened, and a scheduled sweeper destroys anything a crashed
-process left behind.
+process left behind. The HTTP server also drains in-flight rescues on `SIGTERM` and `SIGINT`
+rather than orphaning their machines.
+
+**Windows does not deliver `SIGTERM`.** Node calls `TerminateProcess` there, so the drain above
+never runs and a rescue killed mid-flight leaks its machine. Verified by experiment, not
+assumed. Run `npm run sweep 0` after any hard kill; on Linux and in containers the drain works
+as intended.
 
 ## What is not solved
 
@@ -31,8 +37,10 @@ process left behind.
 - **No per-caller authentication.** The MCP server is local stdio and the HTTP server has no
   auth. Do not expose it publicly without putting something in front of it.
 - **No rate limiting.** The concurrency gate protects the Solari quota, not against abuse. One
-  caller can occupy the queue.
-- **Results sit in memory for 30 minutes** unless the caller asks for no retention.
+  caller can occupy the queue. Sockets idle for two minutes are dropped, which blunts slow-loris
+  but is not a substitute for a rate limiter in front of a public deployment.
+- **Results sit in memory for 30 minutes** unless the caller asks for no retention. The store is
+  capped at 200 entries and 256 MB, whichever binds first, and evicts oldest first.
 
 ## Your API key
 

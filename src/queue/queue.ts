@@ -14,6 +14,7 @@ export class Queue {
   readonly #maxWaiting: number;
   #active = 0;
   readonly #waiting: Array<() => void> = [];
+  readonly #idle = new Set<() => void>();
 
   constructor(max: number, maxWaiting = 20) {
     this.#max = Math.max(1, max);
@@ -22,6 +23,12 @@ export class Queue {
 
   get stats(): { active: number; waiting: number } {
     return { active: this.#active, waiting: this.#waiting.length };
+  }
+
+  /** Resolves once nothing is running or queued. Used to drain before shutting down. */
+  drained(): Promise<void> {
+    if (this.#active === 0 && this.#waiting.length === 0) return Promise.resolve();
+    return new Promise((resolve) => this.#idle.add(resolve));
   }
 
   async run<T>(task: () => Promise<T>): Promise<T> {
@@ -50,5 +57,9 @@ export class Queue {
   #release(): void {
     this.#active--;
     this.#waiting.shift()?.();
+    if (this.#active === 0 && this.#waiting.length === 0) {
+      for (const resolve of this.#idle) resolve();
+      this.#idle.clear();
+    }
   }
 }

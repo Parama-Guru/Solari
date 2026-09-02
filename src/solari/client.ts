@@ -193,6 +193,7 @@ export class SolariClient {
   async listSandboxes(filter: { state?: string; metadata?: Record<string, string> } = {}): Promise<SandboxRecord[]> {
     const found: SandboxRecord[] = [];
     let cursor: string | undefined;
+    const seen = new Set<string>();
 
     do {
       const params = new URLSearchParams();
@@ -207,6 +208,11 @@ export class SolariClient {
       );
       found.push(...(page.sandboxes ?? []));
       cursor = page.nextCursor;
+      // A cursor that repeats would otherwise page for ever and grow `found` without end.
+      if (cursor) {
+        if (seen.has(cursor)) break;
+        seen.add(cursor);
+      }
     } while (cursor);
 
     return found;
