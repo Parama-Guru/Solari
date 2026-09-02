@@ -369,29 +369,51 @@
     <div class="pg-card reveal">
       <div class="pg-bar">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-        <span class="title">openable · live</span>
+        <span class="title" id="pg-title">openable · live</span>
       </div>
       <div class="pg-body">
-        <div id="drop" tabindex="0" role="button" aria-label="Choose a file to recover">
-          <strong>Drop a file here, or click to choose</strong>
-          <span>Up to 25 MB. The machine that opens it is destroyed straight afterwards.</span>
+        <div id="pg-live">
+          <div id="drop" tabindex="0" role="button" aria-label="Choose a file to recover">
+            <strong>Drop a file here, or click to choose</strong>
+            <span>Up to 25 MB. The machine that opens it is destroyed straight afterwards.</span>
+          </div>
+          <input type="file" id="file">
+
+          <div class="samples">
+            <span class="lbl">No broken file handy?</span>
+            <button class="chip" data-sample="broken.pdf">broken.pdf</button>
+            <button class="chip" data-sample="truncated.doc">truncated.doc</button>
+            <button class="chip" data-sample="logo.wmf">logo.wmf</button>
+          </div>
+
+          <label class="retain">
+            <input type="checkbox" id="noretain">
+            Keep nothing on the server. The result comes back once, in this reply, and is never
+            held for later.
+          </label>
+
+          <div id="out"></div>
         </div>
-        <input type="file" id="file">
 
-        <div class="samples">
-          <span class="lbl">No broken file handy?</span>
-          <button class="chip" data-sample="broken.pdf">broken.pdf</button>
-          <button class="chip" data-sample="truncated.doc">truncated.doc</button>
-          <button class="chip" data-sample="logo.wmf">logo.wmf</button>
+        <div id="pg-offline" hidden>
+          <h3 style="margin-bottom:12px">Run it on your own machine</h3>
+          <p class="lede" style="font-size:15px">
+            Opening a file boots a real virtual machine, which needs a Solari API key. Rather
+            than run that on somebody else's account, the playground runs on yours &mdash; so
+            your files never touch our servers and your key never leaves your machine.
+          </p>
+          <div class="code" style="margin-top:22px"><button class="copy" id="copy-local">Copy</button><code id="code-local">git clone https://github.com/Parama-Guru/Solari.git
+cd Solari
+npm install
+
+cp .env.example .env   <span class="c"># add your SOLARI_API_KEY</span>
+npm run provision      <span class="c"># builds the toolchain template, once</span>
+npm run dev            <span class="c"># playground on http://localhost:3000</span></code></div>
+          <div class="row">
+            <a class="btn btn-primary" href="https://github.com/Parama-Guru/Solari/archive/refs/heads/main.tar.gz">Download source</a>
+            <a class="btn btn-ghost" href="#install">Use it from an agent instead</a>
+          </div>
         </div>
-
-        <label class="retain">
-          <input type="checkbox" id="noretain">
-          Keep nothing on the server. The result comes back once, in this reply, and is never
-          held for later.
-        </label>
-
-        <div id="out"></div>
       </div>
     </div>
   </div>
@@ -821,6 +843,23 @@ function render_result(data) {
     </div>`;
 
   out.querySelector('.verdict')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/* ---------- live server, or static demo? ---------- */
+$('copy-local').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('code-local').textContent);
+  $('copy-local').textContent = 'Copied';
+  setTimeout(() => { $('copy-local').textContent = 'Copy'; }, 1600);
+});
+
+try {
+  const probe = await fetch('healthz', { cache: 'no-store' });
+  if (!probe.ok) throw new Error('no api behind this page');
+} catch {
+  // Served statically, so there is no machine behind it to run a rescue on.
+  $('pg-live').hidden = true;
+  $('pg-offline').hidden = false;
+  $('pg-title').textContent = 'openable · static demo';
 }
 </script>
 </body>

@@ -30,7 +30,21 @@ jobs:
         with:
           node-version: '24'
 
-      # Older than 30 minutes, which is well past the longest rescue.
-      - run: node src/scripts/sweep.ts 30 ${{ inputs.dry_run && '--dry-run' || '' }}
+      # Older than 30 minutes, which is well past the longest rescue. Skips rather than fails
+      # when no secret is set, so forks and fresh clones do not get a broken job every six
+      # hours. Inputs arrive as env vars, never interpolated into the shell.
+      - name: Sweep orphaned sandboxes
         env:
           SOLARI_API_KEY: ${{ secrets.SOLARI_API_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ -z "$SOLARI_API_KEY" ]; then
+            echo "No SOLARI_API_KEY secret is set, so there is nothing to sweep."
+            echo "Add one under Settings > Secrets and variables > Actions to enable this."
+            exit 0
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            node src/scripts/sweep.ts 30 --dry-run
+          else
+            node src/scripts/sweep.ts 30
+          fi
