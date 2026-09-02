@@ -130,17 +130,28 @@ Nothing needs deploying and nothing needs installing. Add this to your MCP clien
     "openable": {
       "command": "npx",
       "args": ["-y", "github:Parama-Guru/Solari"],
-      "env": { "SOLARI_API_KEY": "slr_live_..." }
+      "env": {
+        "SOLARI_API_KEY": "slr_live_...",
+        "SOLARI_TEMPLATE": "tpl_..."
+      }
     }
   }
 }
 ```
 
+Both values are required. `SOLARI_TEMPLATE` is the converter image, built once with
+`npm run provision`, which prints the id. Without it the server refuses to start a machine
+rather than booting one that has no LibreOffice on it and failing 15 seconds later.
+
+Call **`check_setup`** first: it verifies the key against the live API, reports whether the
+template is set, and starts no machine.
+
 You supply your own Solari key, so the machine that opens your file is yours and nobody
 else's quota is involved. Requires Node 22.18 or newer.
 
-Three tools are exposed:
+Four tools are exposed:
 
+- **`check_setup`** — confirms the key works and a template is configured. Free, no machine.
 - **`identify_file`** — what a file actually is, from its bytes. Runs locally, starts no
   machine, and costs nothing. Useful as a cheap check before committing to a recovery.
 - **`read_unopenable_file`** — opens the file in an isolated VM and returns the text, with

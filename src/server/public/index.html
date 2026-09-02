@@ -638,12 +638,17 @@ const SNIPPETS = {
     "openable": {
       "command": <span class="s">"npx"</span>,
       "args": [<span class="s">"-y"</span>, <span class="s">"github:Parama-Guru/Solari"</span>],
-      "env": { "SOLARI_API_KEY": <span class="s">"slr_live_..."</span> }
+      "env": {
+        "SOLARI_API_KEY": <span class="s">"slr_live_..."</span>,
+        "SOLARI_TEMPLATE": <span class="s">"tpl_..."</span>
+      }
     }
   }
 }
 
-<span class="c"># Tools: identify_file, read_unopenable_file, read_unopenable_files</span>`,
+<span class="c"># Both are required. The template is the converter image, built once</span>
+<span class="c"># with `npm run provision`. Call check_setup first to confirm both.</span>
+<span class="c"># Tools: check_setup, identify_file, read_unopenable_file(s)</span>`,
 
   lib: `npm install openable
 

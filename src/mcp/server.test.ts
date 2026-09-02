@@ -20,7 +20,11 @@ function call(id: number, method: string, params?: Record<string, unknown>): Pro
 }
 
 before(() => {
-  child = spawn(process.execPath, [SERVER], { stdio: ['pipe', 'pipe', 'pipe'] });
+  // Pinned so the developer's own .env cannot change what these tests see.
+  child = spawn(process.execPath, [SERVER], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, SOLARI_API_KEY: 'test-key-not-real', SOLARI_TEMPLATE: 'base' },
+  });
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
     buffer += chunk;
@@ -49,6 +53,7 @@ test('advertises every tool with a schema', async () => {
   const response = await call(2, 'tools/list');
   const tools = (response['result'] as { tools: { name: string; inputSchema: unknown }[] }).tools;
   assert.deepEqual(tools.map((t) => t.name).sort(), [
+    'check_setup',
     'identify_file',
     'read_unopenable_file',
     'read_unopenable_files',
@@ -101,6 +106,22 @@ test('caps how many files one batch may hold', async () => {
   const result = response['result'] as { content: { text: string }[]; isError?: boolean };
   assert.equal(result.isError, true);
   assert.match(result.content[0]!.text, /At most 10/);
+});
+
+test('refuses to boot a machine when no converter template is configured', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'openable-'));
+  const path = join(dir, 'thing.doc');
+  writeFileSync(path, 'not really a document');
+
+  const response = await call(9, 'tools/call', {
+    name: 'read_unopenable_file',
+    arguments: { path },
+  });
+  const result = response['result'] as { content: { text: string }[]; isError?: boolean };
+
+  // `base` has no converters, so every rescue on it fails after paying for a boot.
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]!.text, /npm run provision/);
 });
 
 test('answers ping', async () => {

@@ -78,6 +78,14 @@ const TOOLS = [
       required: ['paths'],
     },
   },
+  {
+    name: 'check_setup',
+    description:
+      'Verify that Openable is configured correctly: that the API key works and that a converter ' +
+      'template is set. Costs nothing and starts no virtual machine. Call this first if a rescue ' +
+      'fails, or before the first use.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ] as const;
 
 function send(message: Record<string, unknown>): void {
@@ -124,9 +132,69 @@ function handleIdentify(args: Record<string, unknown>): ToolResult {
   );
 }
 
+const TEMPLATE_HELP = [
+  'No converter template is configured, so every rescue would fail after wasting a boot.',
+  '',
+  'SOLARI_TEMPLATE is "base", which starts quickly but has no LibreOffice, Inkscape or',
+  'Ghostscript on it. Build one once, which takes about 1.6 minutes:',
+  '',
+  '  git clone https://github.com/Parama-Guru/Solari.git',
+  '  cd Solari && npm install',
+  '  cp .env.example .env        # add SOLARI_API_KEY',
+  '  npm run provision           # prints SOLARI_TEMPLATE=tpl_...',
+  '',
+  'Then put that id beside your key in the MCP config:',
+  '',
+  '  "env": { "SOLARI_API_KEY": "slr_live_...", "SOLARI_TEMPLATE": "tpl_..." }',
+].join('\n');
+
+/** Config that is actually usable, rather than one that merely parsed. */
+function readyConfig(): ReturnType<typeof loadConfig> {
+  const config = loadConfig();
+  if (!config.template || config.template === 'base') throw new Error(TEMPLATE_HELP);
+  return config;
+}
+
+async function handleCheckSetup(): Promise<ToolResult> {
+  // Via loadConfig, not process.env, so a local .env counts as configured too.
+  let config: ReturnType<typeof loadConfig>;
+  try {
+    config = loadConfig();
+  } catch {
+    return textResult(
+      'SOLARI_API_KEY is not set.\n\nAdd it to the env block of your MCP config:\n\n' +
+        '  "env": { "SOLARI_API_KEY": "slr_live_...", "SOLARI_TEMPLATE": "tpl_..." }\n\n' +
+        'Keys come from https://www.getsolari.com. Openable never ships one; you use your own.',
+      true,
+    );
+  }
+
+  const lines = [`API key: set, ending ${config.apiKey.slice(-4)}`];
+  const client = new SolariClient({ apiKey: config.apiKey, baseUrl: config.baseUrl });
+
+  try {
+    const live = await client.listSandboxes({ metadata: { app: 'openable' } });
+    lines.push(`API reachable: yes, ${live.length} Openable machine(s) currently running`);
+  } catch (error) {
+    return textResult(
+      `${lines.join('\n')}\nAPI reachable: no.\n\n${error instanceof Error ? error.message : String(error)}`,
+      true,
+    );
+  }
+
+  if (config.template === 'base') {
+    return textResult(`${lines.join('\n')}\nTemplate: missing\n\n${TEMPLATE_HELP}`, true);
+  }
+
+  lines.push(`Template: ${config.template}`);
+  lines.push('');
+  lines.push('Ready. Call read_unopenable_file on any file that will not open.');
+  return textResult(lines.join('\n'));
+}
+
 async function handleRead(args: Record<string, unknown>): Promise<ToolResult> {
   const file = loadFile(args['path']);
-  const config = loadConfig();
+  const config = readyConfig();
   const client = new SolariClient({ apiKey: config.apiKey, baseUrl: config.baseUrl });
 
   const { report, artifacts } = await rescue(client, { filename: file.name, bytes: file.bytes }, { template: config.template });
@@ -173,7 +241,7 @@ async function handleReadMany(args: Record<string, unknown>): Promise<ToolResult
   if (paths.length > MAX_BATCH_FILES) throw new Error(`At most ${MAX_BATCH_FILES} files per call.`);
 
   const files = paths.map((path) => loadFile(path));
-  const config = loadConfig();
+  const config = readyConfig();
   const client = new SolariClient({ apiKey: config.apiKey, baseUrl: config.baseUrl });
 
   const batch = await rescueBatch(
@@ -219,6 +287,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<To
         return await handleRead(args);
       case 'read_unopenable_files':
         return await handleReadMany(args);
+      case 'check_setup':
+        return await handleCheckSetup();
       default:
         return textResult(`Unknown tool: ${name}`, true);
     }
