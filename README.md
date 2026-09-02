@@ -72,6 +72,49 @@ npm run fixtures  # generates real legacy and damaged files to test against
 npm run e2e       # runs every fixture through the live pipeline
 ```
 
+`npm run dev` serves the playground: a landing page with a live drop zone that runs the real
+pipeline, plus the format list, the measured numbers and install instructions.
+
+## Use it as a library
+
+```bash
+npm install openable
+```
+
+```ts
+import { rescue, SolariClient } from 'openable';
+
+const client = new SolariClient({ apiKey: process.env.SOLARI_API_KEY! });
+
+const { report, artifacts } = await rescue(
+  client,
+  { filename: 'broken.pdf', bytes },
+  { template: process.env.SOLARI_TEMPLATE! },
+);
+
+report.recovered;         // did anything open
+report.degraded;          // true when only a lossy fallback worked
+report.detection.format;  // what the bytes actually were
+report.vm.destroyedAt;    // when the machine holding it was destroyed
+artifacts.pdf;            // Uint8Array
+artifacts.pages;          // one PNG per page, as proof
+artifacts.text;           // extracted text
+```
+
+Boot is roughly 70% of a rescue and is charged per machine, so use `rescueBatch` for more
+than one file and pay it once:
+
+```ts
+import { rescueBatch } from 'openable';
+
+const batch = await rescueBatch(client, inputs, { template });
+batch.bootMs;   // paid once for the whole batch
+batch.items;    // one report and artifacts per input
+```
+
+`detect(bytes, filename)` is also exported on its own. It is pure, runs locally, starts no
+machine and costs nothing, which makes it a cheap check before committing to a recovery.
+
 ## Use it from an AI agent
 
 Agents hit files they cannot parse constantly: a legacy attachment, a scanned contract, a

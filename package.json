@@ -1,9 +1,40 @@
 {
   "name": "openable",
   "version": "0.1.0",
-  "private": true,
-  "description": "Recover files that no longer open, inside a disposable Solari machine.",
+  "description": "Open files that no longer open. Runs real desktop applications inside a disposable Solari VM and returns a readable PDF, text and proof it rendered.",
+  "keywords": [
+    "file-recovery",
+    "document-conversion",
+    "corrupt-pdf",
+    "legacy-formats",
+    "libreoffice",
+    "ghostscript",
+    "sandbox",
+    "solari",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "homepage": "https://github.com/Parama-Guru/Solari#readme",
+  "bugs": "https://github.com/Parama-Guru/Solari/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Parama-Guru/Solari.git"
+  },
+  "license": "MIT",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/server.d.ts",
+      "import": "./dist/mcp/server.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "openable-mcp": "dist/mcp/server.js"
   },
