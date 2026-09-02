@@ -21,6 +21,12 @@ export type AppConfig = {
   template: string;
   maxConcurrency: number;
   port: number;
+  /** Rescues allowed per caller per minute. */
+  rateLimitPerMinute: number;
+  /** Hard ceiling on VM seconds bought in any rolling day. 0 disables it. */
+  maxVmSecondsPerDay: number;
+  /** Only honour X-Forwarded-For when something trusted actually sets it. */
+  trustProxy: boolean;
 };
 
 export function loadConfig(): AppConfig {
@@ -35,5 +41,8 @@ export function loadConfig(): AppConfig {
     template: process.env['SOLARI_TEMPLATE'] ?? 'base',
     maxConcurrency: Number(process.env['SOLARI_MAX_CONCURRENCY'] ?? '1'),
     port: Number(process.env['PORT'] ?? '3000'),
+    rateLimitPerMinute: Number(process.env['OPENABLE_RATE_LIMIT_PER_MINUTE'] ?? '5'),
+    maxVmSecondsPerDay: Number(process.env['OPENABLE_MAX_VM_SECONDS_PER_DAY'] ?? '0'),
+    trustProxy: process.env['OPENABLE_TRUST_PROXY'] === 'true',
   };
 }

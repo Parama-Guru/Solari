@@ -15,7 +15,6 @@ import type { CreateSandboxOptions, SolariClient } from '../solari/client.ts';
 import { withSandbox, type SandboxLifecycle } from '../solari/session.ts';
 
 const MINUTE = 60_000;
-const MAX_PAGES = 8;
 const TEXT_PATH = `${OUT_DIR}/text.txt`;
 
 export type RescueInput = {
@@ -36,7 +35,14 @@ export type RescueOutcome = {
 
 export type RescueOptions = {
   template: string;
+  /** Page images to bring back. Defaults to 8; each one is a download and a transfer cost. */
+  maxPages?: number;
 };
+
+const PAGE_LIMIT = { min: 1, max: 50, fallback: 8 } as const;
+
+const pageLimitOf = (options: RescueOptions): number =>
+  Math.min(PAGE_LIMIT.max, Math.max(PAGE_LIMIT.min, Math.trunc(options.maxPages ?? PAGE_LIMIT.fallback)));
 
 export type BatchItem = {
   /** `timings.createMs` is this file's share of one shared boot, not a boot of its own. */
@@ -111,7 +117,12 @@ function parseCollected(stdout: string): Collected {
 }
 
 /** One file, start to finish, inside a sandbox that is already running. */
-async function runFile(client: SolariClient, id: string, input: RescueInput): Promise<FileRun> {
+async function runFile(
+  client: SolariClient,
+  id: string,
+  input: RescueInput,
+  maxPages: number,
+): Promise<FileRun> {
   const started = Date.now();
   const detection = detect(input.bytes, input.filename);
   const inputPath = guestInputPath(detection);
@@ -172,7 +183,7 @@ async function runFile(client: SolariClient, id: string, input: RescueInput): Pr
 
   if (winner) {
     artifacts.pdf = await client.download(id, OUT_PDF);
-    for (const page of pages.slice(0, MAX_PAGES)) {
+    for (const page of pages.slice(0, maxPages)) {
       artifacts.pages.push(await client.download(id, page.path));
     }
     try {
@@ -249,7 +260,7 @@ export async function rescue(
   const { value: run, lifecycle } = await withSandbox<FileRun>(
     client,
     sandboxOptions(options, 'rescue'),
-    (sandbox) => runFile(client, sandbox.sandboxId, input),
+    (sandbox) => runFile(client, sandbox.sandboxId, input, pageLimitOf(options)),
   );
 
   return {
@@ -275,7 +286,8 @@ export async function rescueBatch(
     sandboxOptions(options, 'batch'),
     async (sandbox) => {
       const collected: FileRun[] = [];
-      for (const input of inputs) collected.push(await runFile(client, sandbox.sandboxId, input));
+      const limit = pageLimitOf(options);
+      for (const input of inputs) collected.push(await runFile(client, sandbox.sandboxId, input, limit));
       return collected;
     },
   );

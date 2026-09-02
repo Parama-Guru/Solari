@@ -5,6 +5,7 @@ import type { AppConfig } from '../config.ts';
 import { rescue } from '../pipeline/rescue.ts';
 import { Queue, QueueFullError } from '../queue/queue.ts';
 import { SolariClient, SolariError } from '../solari/client.ts';
+import { RateLimiter } from './rate-limit.ts';
 import { ResultStore } from './store.ts';
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -28,7 +29,14 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 
 function sendBytes(res: ServerResponse, contentType: string, bytes: Uint8Array, filename?: string): void {
   const headers: Record<string, string> = { 'Content-Type': contentType, 'Cache-Control': 'no-store' };
-  if (filename) headers['Content-Disposition'] = `attachment; filename="${filename}"`;
+  if (filename) {
+    // RFC 6266: a quoted string cannot carry backslashes or quotes raw, and anything
+    // non-ASCII needs the filename* form, so both are sent and the client picks.
+    const quoted = filename.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const ascii = quoted.replace(/[^\x20-\x7e]/g, '_');
+    headers['Content-Disposition'] =
+      `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  }
   res.writeHead(200, headers);
   res.end(bytes);
 }
@@ -64,6 +72,25 @@ export function createApp(deps: AppDependencies): Server {
 
   // VM time is the billable unit, so it is counted rather than estimated.
   const metrics = { rescues: 0, recovered: 0, vmMs: 0 };
+  const limiter = new RateLimiter(config.rateLimitPerMinute, 60_000);
+
+  // Rolling day of VM spend, so a runaway client cannot quietly empty an account.
+  const spend: Array<{ at: number; ms: number }> = [];
+  const DAY_MS = 24 * 60 * 60_000;
+
+  function vmMsToday(now = Date.now()): number {
+    while (spend.length > 0 && now - spend[0]!.at > DAY_MS) spend.shift();
+    return spend.reduce((sum, s) => sum + s.ms, 0);
+  }
+
+  function callerOf(req: IncomingMessage): string {
+    if (config.trustProxy) {
+      const forwarded = req.headers['x-forwarded-for'];
+      const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    return req.socket.remoteAddress ?? 'unknown';
+  }
 
   return createServer((req, res) => {
     // A rescue legitimately takes tens of seconds, but a socket that goes quiet for two
@@ -99,16 +126,38 @@ export function createApp(deps: AppDependencies): Server {
         vmSecondsPerRescue: metrics.rescues
           ? Number((metrics.vmMs / metrics.rescues / 1000).toFixed(1))
           : 0,
+        vmSecondsToday: Math.round(vmMsToday() / 1000),
+        vmSecondsBudget: config.maxVmSecondsPerDay || null,
+        store: store.stats,
       });
       return;
     }
 
     if (req.method === 'PUT' && path === '/api/rescue') {
+      const budget = config.maxVmSecondsPerDay;
+      if (budget > 0 && vmMsToday() / 1000 >= budget) {
+        sendJson(res, 429, {
+          error: 'This server has reached its daily machine-time budget. Try again tomorrow.',
+        });
+        return;
+      }
+
+      const decision = limiter.take(callerOf(req));
+      if (!decision.allowed) {
+        res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+        sendJson(res, 429, {
+          error: `Too many rescues from your address. Try again in ${decision.retryAfterSeconds}s.`,
+        });
+        return;
+      }
+
+      const pagesParam = Number(url.searchParams.get('pages'));
       await handleRescue(
         req,
         res,
         displayName(url.searchParams.get('name')),
         url.searchParams.get('retain') !== 'none',
+        Number.isFinite(pagesParam) && pagesParam > 0 ? pagesParam : undefined,
       );
       return;
     }
@@ -152,6 +201,7 @@ export function createApp(deps: AppDependencies): Server {
     res: ServerResponse,
     name: string,
     retain: boolean,
+    maxPages?: number,
   ): Promise<void> {
     let bytes: Uint8Array;
     try {
@@ -171,13 +221,21 @@ export function createApp(deps: AppDependencies): Server {
 
     try {
       const outcome = await queue.run(() =>
-        rescue(client, { filename: name, bytes }, { template: config.template }),
+        rescue(
+          client,
+          { filename: name, bytes },
+          maxPages === undefined
+            ? { template: config.template }
+            : { template: config.template, maxPages },
+        ),
       );
       const { timings } = outcome.report;
       metrics.rescues += 1;
       if (outcome.report.recovered) metrics.recovered += 1;
-      metrics.vmMs +=
+      const vmMs =
         timings.createMs + timings.uploadMs + timings.attemptsMs + timings.downloadMs + timings.destroyMs;
+      metrics.vmMs += vmMs;
+      spend.push({ at: Date.now(), ms: vmMs });
 
       const summary = {
         report: { ...outcome.report, outputs: { ...outcome.report.outputs, text: '' } },
