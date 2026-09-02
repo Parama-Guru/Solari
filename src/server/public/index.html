@@ -360,7 +360,7 @@
     <div class="section-head reveal">
       <p class="eyebrow">Playground</p>
       <h2>Give it something broken.</h2>
-      <p class="lede">
+      <p class="lede" id="pg-lede">
         This runs the real pipeline on a real machine. Nothing is simulated. You get the same
         report the library returns, including which attempts failed and why.
       </p>
@@ -859,8 +859,9 @@ try {
   // Served statically, so there is no machine behind it to run a rescue on.
   $('pg-live').hidden = true;
   $('pg-offline').hidden = false;
-  $('pg-title').textContent = 'openable · static demo';
-}
+  $('pg-title').textContent = 'openable · static demo';  $('pg-lede').textContent =
+    'This page is served as static files, so there is no machine behind it. The playground '
+    + 'runs the real pipeline, but it runs on your machine with your own key.';}
 </script>
 </body>
 </html>
