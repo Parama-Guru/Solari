@@ -1,5 +1,5 @@
 {
-  "name": "openable",
+  "name": "@parama-guru/openable",
   "version": "0.2.0",
   "description": "Open files that no longer open. Runs real desktop applications inside a disposable Solari VM and returns a readable PDF, text and proof it rendered.",
   "keywords": [
@@ -37,7 +37,9 @@
   },
   "bin": {
     "openable-mcp": "dist/mcp/server.js",
-    "openable-playground": "dist/server/main.js"
+    "openable-playground": "dist/server/main.js",
+    "openable-provision": "dist/scripts/provision.js",
+    "openable-sweep": "dist/scripts/sweep.js"
   },
   "files": [
     "dist",

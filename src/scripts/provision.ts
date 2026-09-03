@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { loadConfig } from '../config.ts';
 import { SolariClient } from '../solari/client.ts';
 import { withSandbox } from '../solari/session.ts';

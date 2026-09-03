@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { loadConfig } from '../config.ts';
 import { SolariClient, type SandboxRecord } from '../solari/client.ts';
 
