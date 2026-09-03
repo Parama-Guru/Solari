@@ -39,12 +39,21 @@ the cause — the base image boots in 0.5s, mine with LibreOffice installed take
 That points somewhere completely different from where I was optimising: pay boot once. A
 batch tool that opens five files on one VM runs in 31.8s instead of 83s.
 
-7 of 7 damaged fixtures recovered. 30 tests. No runtime dependencies.
+The third mistake was mine twice over. I added OCR so scanned documents return words instead
+of pictures, and it worked: a two-page scan with no text layer came back as 356 characters of
+correct prose. But it also ran on anything with little text, and **overwrote text that was
+already right**. A drawing containing the word "Northwind" came back as "© Northwine", and
+the report claimed there had never been a text layer. I only caught it by opening a file whose
+answer I already knew. OCR now runs only when there is genuinely nothing there, and never
+replaces a better answer with a guess.
+
+18 of 18 damaged and legacy fixtures recovered. 44 tests. No runtime dependencies.
 
 It's an MCP server, so an AI agent can read a file it cannot parse:
 
 ```
-npx -y github:Parama-Guru/Solari
+npx -y -p github:Parama-Guru/Solari openable-provision   # once, builds the toolchain
+npx -y github:Parama-Guru/Solari                          # the MCP server
 ```
 
 Nothing to deploy. Bring your own Solari key.
@@ -105,7 +114,7 @@ It's an MCP server, so agents can read files they can't parse.
 
 npx -y github:Parama-Guru/Solari
 
-Nothing to deploy. 7/7 fixtures recovered, 30 tests, zero runtime deps.
+Nothing to deploy. 18/18 fixtures recovered, 44 tests, zero runtime deps.
 
 https://github.com/Parama-Guru/Solari
 
@@ -162,7 +171,8 @@ arrives and fails; that list decides what to build next, better than guessing do
 
 - [ ] Rotate the Solari API key. The one used during development has been pasted into chat
       logs and must not be the one in `.env` when this goes public.
-- [ ] Confirm the repo is public and the README renders.
+- [ ] Confirm the repo is public, CI is green, and the README renders.
+- [ ] The site is live at https://parama-guru.github.io/Solari/ — link it in the post.
 - [ ] Fork `solari-cookbook` and open a PR, which the brief asked for. Not done: no GitHub
       CLI on this machine, and opening a PR against someone else's repo is a public action
       that should be a deliberate click, not an automated one.
