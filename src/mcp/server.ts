@@ -55,6 +55,10 @@ const TOOLS = [
           type: 'boolean',
           description: 'Also return the first page as an image, for visually inspecting layout. Defaults to false.',
         },
+        max_pages: {
+          type: 'number',
+          description: 'How many page images to render, 1 to 50. Defaults to 8. Higher costs more transfer.',
+        },
       },
       required: ['path'],
     },
@@ -100,8 +104,13 @@ const fail = (id: JsonRpcId, code: number, message: string): void =>
 const textResult = (text: string, isError = false): ToolResult =>
   isError ? { content: [{ type: 'text', text }], isError: true } : { content: [{ type: 'text', text }] };
 
-function loadFile(path: unknown): { name: string; bytes: Uint8Array } {
-  if (typeof path !== 'string' || !path.trim()) throw new Error('A "path" string is required.');
+/** Optional page cap from a tool call, ignored unless it is a sane number. */
+function pagesOf(args: Record<string, unknown>): number | undefined {
+  const raw = args['max_pages'];
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : undefined;
+}
+
+function loadFile(path: unknown): { name: string; bytes: Uint8Array } {  if (typeof path !== 'string' || !path.trim()) throw new Error('A "path" string is required.');
   const stats = statSync(path);
   if (!stats.isFile()) throw new Error(`${path} is not a file.`);
   if (stats.size === 0) throw new Error(`${path} is empty.`);
@@ -197,7 +206,13 @@ async function handleRead(args: Record<string, unknown>): Promise<ToolResult> {
   const config = readyConfig();
   const client = new SolariClient({ apiKey: config.apiKey, baseUrl: config.baseUrl });
 
-  const { report, artifacts } = await rescue(client, { filename: file.name, bytes: file.bytes }, { template: config.template });
+  const { report, artifacts } = await rescue(
+    client,
+    { filename: file.name, bytes: file.bytes },
+    pagesOf(args) === undefined
+      ? { template: config.template }
+      : { template: config.template, maxPages: pagesOf(args)! },
+  );
 
   if (!report.recovered) {
     const tried = report.attempts.map((a) => `  - ${a.label}: ${a.detail}`).join('\n');

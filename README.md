@@ -198,9 +198,16 @@ damages copies of them.
 | `report.doc` | Word 97-2003 document | yes | LibreOffice direct export | 1 | 15.9s |
 | `report.docx` | Word document | yes | LibreOffice direct export | 1 | 15.8s |
 | `report.odt` | OpenDocument Text | yes | LibreOffice direct export | 1 | 16.0s |
+| `scanned.pdf` | PDF, image only | yes | Verified, then OCR | 2 | 17.5s |
 | `truncated.doc` | Word 97-2003 document | partial | Raw text salvage | 1 | 19.7s |
 
-**17 of 17 recovered**, every one by the strategy you would want it to use.
+**18 of 18 recovered**, every one by the strategy you would want it to use.
+
+Those times are from a healthy platform. A later run of the same 18 files, while Solari was
+visibly degraded, still returned **18 of 18** but averaged 55.9s, because the client waits out
+gateway errors and concurrency refusals instead of throwing away a booted machine. In that run
+the stages accounted for only 29% of the wall clock; the rest was waiting. Worth knowing which
+number you are looking at: 16s measures this code, 56s measures a bad afternoon upstream.
 
 Three results are worth calling out.
 
@@ -249,14 +256,19 @@ The cause is the template itself. Timing three cold boots of each:
 
 | Template | Mean boot |
 | --- | --- |
-| `base` | 0.5s |
-| Openable, with LibreOffice, Inkscape, Ghostscript and ImageMagick | 11.1s |
+| `base`, nothing installed | 0.6s |
+| Converters only | 10.6s |
+| Converters plus Tesseract, what this runs on | **10.7s** |
 
 So the pre-warmed toolchain that makes conversion take 2.1s instead of several minutes is
-also what costs 10.6s of boot. That is still the right trade, but it means further work on
+also what costs 10s of boot. That is still the right trade, but it means further work on
 the conversion code is pointless. The remaining levers are a slimmer template, or a warm pool
 of ready VMs, and a warm pool trades away the guarantee that your file lands on a machine
 nobody else has touched. I would rather keep the guarantee and show a progress indicator.
+
+The third row also settles a question worth asking: **OCR cost 0.1s of boot.** Trimming it
+would save nothing measurable, and the 10s belongs to LibreOffice, which is the whole point.
+A slimmer template is not the lever it looks like.
 
 An earlier version of this README claimed boot took 1.4s. That number was real but it was the
 `base` template, not the one this actually runs on.
