@@ -5,6 +5,7 @@ import {
   HOP_DIR,
   LOSSY_STRATEGIES,
   ocrCommand,
+  OCR_PATH,
   OCR_TEXT_THRESHOLD,
   OUT_DIR,
   OUT_PDF,
@@ -203,9 +204,9 @@ async function runFile(
   const downloadStarted = Date.now();
   let ocred = false;
 
-  const readText = async (): Promise<string> => {
+  const readFile = async (path: string): Promise<string> => {
     try {
-      return new TextDecoder().decode(await client.download(id, TEXT_PATH)).trim();
+      return new TextDecoder().decode(await client.download(id, path)).trim();
     } catch {
       return '';
     }
@@ -213,17 +214,22 @@ async function runFile(
 
   if (winner) {
     report({ stage: 'downloading' });
-    artifacts.text = await readText();
+    artifacts.text = await readFile(TEXT_PATH);
 
     // A scan renders pages but carries no text layer, and reading the pixels is the only
-    // way to get words out of it.
+    // way to get words out of it. OCR is a guess, so it only wins when there was nothing
+    // to begin with, or when it recovers substantially more than was already there.
     if (artifacts.text.length < OCR_TEXT_THRESHOLD && pages.length > 0) {
       report({ stage: 'ocr' });
-      const ocr = ocrCommand(OUT_DIR, TEXT_PATH);
+      const ocr = ocrCommand(OUT_DIR, OCR_PATH);
       const run = await client.exec(id, ocr.cmd, ocr.args, ocr.timeoutMs);
+
       if (run.stdout.includes('OCRED=yes')) {
-        artifacts.text = await readText();
-        ocred = artifacts.text.length > 0;
+        const guessed = await readFile(OCR_PATH);
+        if (guessed.length > Math.max(artifacts.text.length * 2, 1)) {
+          artifacts.text = guessed;
+          ocred = true;
+        }
       }
     }
 

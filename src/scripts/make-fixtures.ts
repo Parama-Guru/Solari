@@ -79,6 +79,12 @@ head -c $((SIZE * 55 / 100)) report.doc > truncated.doc
 PSIZE=$(stat -c%s good.pdf)
 head -c $((PSIZE - 400)) good.pdf > broken.pdf
 
+# A scan: pages rasterised and rebuilt into a PDF with no text layer at all, which is what
+# a flatbed scanner or a photographed document actually produces.
+pdftoppm -png -r 150 good.pdf scanpage
+(magick scanpage*.png scanned.pdf 2>/dev/null || convert scanpage*.png scanned.pdf)
+rm -f scanpage*.png
+
 ls -l
 `;
 
@@ -89,6 +95,7 @@ const WANTED = [
   'good.pdf',
   'truncated.doc',
   'broken.pdf',
+  'scanned.pdf',
   'report.docx',
   'report.odt',
   'budget.xlsx',
