@@ -72,7 +72,7 @@ machine, because installing them per request would take minutes. Building the te
 about 1.6 minutes and produces an id you keep:
 
 ```bash
-SOLARI_API_KEY=slr_live_... npx -y github:Parama-Guru/Solari openable-provision
+SOLARI_API_KEY=slr_live_... npx -y -p github:Parama-Guru/Solari openable-provision
 # prints: SOLARI_TEMPLATE=tpl_...
 ```
 
@@ -163,7 +163,7 @@ Nothing needs deploying, and nothing needs cloning. Build a template once, then 
 MCP client at the repository:
 
 ```bash
-SOLARI_API_KEY=slr_live_... npx -y github:Parama-Guru/Solari openable-provision
+SOLARI_API_KEY=slr_live_... npx -y -p github:Parama-Guru/Solari openable-provision
 # prints: SOLARI_TEMPLATE=tpl_...
 ```
 
