@@ -54,22 +54,56 @@ template is what survives a gateway restart. Every rescue then boots from that t
 LibreOffice already installed and its user profile already warmed, which removes the
 multi-minute install and the slow first launch from the request path.
 
+## Before you start
+
+Two things, whichever way you use this.
+
+**Node 22.18 or newer.** The source runs as TypeScript with no build step, which needs the
+version of Node that strips types. Check with `node --version`; on an older one `npm install`
+appears to work and then fails confusingly.
+
+**A Solari API key**, from [getsolari.com](https://www.getsolari.com). Openable never ships a
+key and never uses anyone else's: the machine that opens your file is billed to you, which is
+also why nothing you upload passes through a server of ours.
+
+**A converter template**, built once from that key. This is the part people miss. A rescue
+needs LibreOffice, Ghostscript, Inkscape, ImageMagick and Tesseract already installed on the
+machine, because installing them per request would take minutes. Building the template takes
+about 1.6 minutes and produces an id you keep:
+
+```bash
+SOLARI_API_KEY=slr_live_... npx -y github:Parama-Guru/Solari openable-provision
+# prints: SOLARI_TEMPLATE=tpl_...
+```
+
+Without that id every rescue would boot a machine with no converters on it and fail, so both
+the server and the MCP tools refuse to start rather than let you pay for that.
+
+> Installed straight from GitHub, because this is not on the npm registry yet. The bare name
+> `openable` there belongs to someone else, so do not `npm install openable` expecting this.
+> When it is published it will be `@parama-guru/openable`.
+
 ## Quick start
 
 ```bash
+git clone https://github.com/Parama-Guru/Solari.git
+cd Solari
 npm install
-cp .env.example .env          # add SOLARI_API_KEY
-npm run doctor                # checks auth and boots a throwaway sandbox
-npm run provision             # builds the converter template, once, about 2 minutes
-# copy the printed SOLARI_TEMPLATE=tpl_... into .env
-npm run dev                   # http://localhost:3000
+
+cp .env.example .env          # put your SOLARI_API_KEY in it
+npm run doctor                # checks the key and boots a throwaway sandbox
+npm run provision             # about 1.6 minutes, prints SOLARI_TEMPLATE=tpl_...
+# put that tpl_... into .env as well
+
+npm run dev                   # playground on http://localhost:3000
 ```
 
 ```bash
-npm test        # unit tests, no network or API key needed
+npm test          # unit tests, no network and no API key needed
 npm run typecheck
 npm run fixtures  # generates real legacy and damaged files to test against
 npm run e2e       # runs every fixture through the live pipeline
+npm run sweep 0   # destroys any machine a crashed run left behind
 ```
 
 `npm run dev` serves the playground: a landing page with a live drop zone that runs the real
@@ -77,12 +111,15 @@ pipeline, plus the format list, the measured numbers and install instructions.
 
 ## Use it as a library
 
+Not on the npm registry yet, so install it from the repository. The bare name `openable` on
+npm is somebody else's package.
+
 ```bash
-npm install openable
+npm install github:Parama-Guru/Solari
 ```
 
 ```ts
-import { rescue, SolariClient } from 'openable';
+import { rescue, SolariClient } from '@parama-guru/openable';
 
 const client = new SolariClient({ apiKey: process.env.SOLARI_API_KEY! });
 
@@ -105,7 +142,7 @@ Boot is roughly 70% of a rescue and is charged per machine, so use `rescueBatch`
 than one file and pay it once:
 
 ```ts
-import { rescueBatch } from 'openable';
+import { rescueBatch } from '@parama-guru/openable';
 
 const batch = await rescueBatch(client, inputs, { template });
 batch.bootMs;   // paid once for the whole batch
@@ -122,7 +159,15 @@ PDF whose structure is broken. The usual workaround is to parse untrusted bytes 
 agent's own process. Openable ships an MCP server so the agent can hand the file to a
 disposable machine instead.
 
-Nothing needs deploying and nothing needs installing. Add this to your MCP client:
+Nothing needs deploying, and nothing needs cloning. Build a template once, then point your
+MCP client at the repository:
+
+```bash
+SOLARI_API_KEY=slr_live_... npx -y github:Parama-Guru/Solari openable-provision
+# prints: SOLARI_TEMPLATE=tpl_...
+```
+
+Add both values to your MCP client:
 
 ```json
 {
@@ -379,6 +424,33 @@ difference between a spinner and knowing what the machine is doing.
 {"progress":{"stage":"attempting","label":"Ghostscript PDF repair","step":2,"of":2}}
 {"result":{ … }}
 ```
+
+## When it does not work
+
+Every one of these has happened while building it.
+
+**`SOLARI_TEMPLATE is "base", which has no converters installed.`** You skipped provisioning,
+or the id never made it into `.env`. Run `npm run provision` and paste the printed `tpl_...`.
+The server refuses to start on `base` on purpose: it would boot a machine and fail.
+
+**`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`** means Node is too old, or something is
+running the TypeScript from inside `node_modules`. Check `node --version` against 22.18.
+
+**`Too many concurrent sessions` or `All rescue machines are busy`.** The free tier allows one
+VM at a time and something else is holding it, usually a rescue that was interrupted. Run
+`npm run sweep 0` to destroy anything left behind, then retry.
+
+**Everything is suddenly two to four times slower.** Solari itself has bad periods. The client
+waits out gateway errors rather than throwing away a booted machine, so runs get slow before
+they fail. `npm run doctor` reports the boot time; roughly 11s is healthy, a minute is not.
+
+**A rescue is killed part way through.** On Linux and in containers the server drains first.
+On Windows `SIGTERM` is not delivered at all, so the machine is orphaned and billed until
+`npm run sweep 0` clears it. Worth running after any hard stop.
+
+**`npm test` tries to start a machine.** Node treats any `*-test.ts` as a test file, so a
+scratch script named that way will be executed. The test script only matches
+`src/**/*.test.ts`; keep experiments out of that pattern.
 
 ## Licence
 
