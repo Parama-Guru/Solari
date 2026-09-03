@@ -1,6 +1,6 @@
 {
   "name": "openable",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open files that no longer open. Runs real desktop applications inside a disposable Solari VM and returns a readable PDF, text and proof it rendered.",
   "keywords": [
     "file-recovery",
@@ -43,6 +43,7 @@
     "dist",
     "samples",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {

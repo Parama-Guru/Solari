@@ -40,6 +40,8 @@ export type RescueStage = 'booting' | 'uploading' | 'attempting' | 'ocr' | 'down
 
 export type RescueProgress = {
   stage: RescueStage;
+  /** Which file this is about. Only interesting for a batch, where several are in flight. */
+  file?: string;
   /** Set on `attempting`: the strategy being tried right now. */
   label?: string;
   /** Set on `attempting`: 1-based position in the plan, and how many there are. */
@@ -140,9 +142,10 @@ async function runFile(
   id: string,
   input: RescueInput,
   maxPages: number,
-  report: (progress: RescueProgress) => void,
+  onProgress: (progress: RescueProgress) => void,
 ): Promise<FileRun> {
   const started = Date.now();
+  const report = (progress: RescueProgress): void => onProgress({ ...progress, file: input.filename });
   const detection = detect(input.bytes, input.filename);
   const inputPath = guestInputPath(detection);
   const attempts: Attempt[] = [];

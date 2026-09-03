@@ -25,8 +25,10 @@ Open a dead file on a disposable machine and prove it opened.
 - [x] Stream progress to the browser. The page used to animate fixed captions on a timer,
       which claimed to be rendering pages while the machine was still booting. `?stream=1`
       now returns NDJSON with a line per real stage.
-- [ ] Trial a slimmer template; the only lever that keeps the fresh-VM-per-file guarantee.
-      A warm pool would be faster but trades the guarantee away.
+- [x] Trialled a slimmer template and it is not the lever it looks like. Three cold boots of
+      each: `base` 0.6s, converters 10.6s, converters plus Tesseract 10.7s. OCR costs 0.1s;
+      the ten seconds belong to LibreOffice, which is the whole point of the template.
+      A warm pool would be faster but trades the fresh-VM-per-file guarantee away.
 - [x] OCR so scanned documents return text, not just page images. Tesseract is in the
       template and runs only when a recovered document has no text layer. Verified on an
       image-only PDF: 0 characters before, real words after, with `ocr: true` in the report.
