@@ -33,18 +33,22 @@ jobs:
       - name: Install the packed package and use it
         run: |
           set -e
-          TARBALL=$(npm pack --silent)
+          PKG=$(node -p "require('./package.json').name")
+          # tail -1 because npm pack prints the tarball name last, whatever else ran first.
+          TARBALL=$(npm pack --silent | tail -1)
           mkdir -p /tmp/consumer && cd /tmp/consumer
           npm init -y >/dev/null
           npm install "$GITHUB_WORKSPACE/$TARBALL" --ignore-scripts
 
-          test -x node_modules/.bin/openable-mcp || { echo "openable-mcp is not executable"; exit 1; }
-          test -x node_modules/.bin/openable-playground || { echo "openable-playground is not executable"; exit 1; }
-          test -f node_modules/openable/dist/server/public/index.html || { echo "the page was not published"; exit 1; }
-          test -f node_modules/openable/samples/broken.pdf || { echo "samples were not published"; exit 1; }
+          for bin in openable-mcp openable-playground openable-provision openable-sweep; do
+            test -x "node_modules/.bin/$bin" || { echo "$bin is missing or not executable"; exit 1; }
+          done
+
+          test -f "node_modules/$PKG/dist/server/public/index.html" || { echo "the page was not published"; exit 1; }
+          test -f "node_modules/$PKG/samples/broken.pdf" || { echo "samples were not published"; exit 1; }
 
           node --input-type=module -e "
-            const m = await import('openable');
+            const m = await import('$PKG');
             const pdf = new Uint8Array([0x25,0x50,0x44,0x46,0x2d,0x31,0x2e,0x37]);
             const d = m.detect(pdf, 'lies.docx');
             if (d.format !== 'PDF') { console.error('detect returned', d.format); process.exit(1); }
@@ -52,5 +56,5 @@ jobs:
           "
 
           printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-            | node node_modules/openable/dist/mcp/server.js | grep -q '"openable"'
+            | node "node_modules/$PKG/dist/mcp/server.js" | grep -q '"openable"'
           echo "MCP server responds from the installed package"
