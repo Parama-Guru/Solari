@@ -50,8 +50,11 @@ A link a stranger can click, for people who are not running an agent.
 - **No longer blocking:** the agent path needs no deployment at all. `npx -y
   github:Parama-Guru/Solari` runs the MCP server on the user's own machine with their
   own key, verified working.
-- **Ready:** `Dockerfile` and `fly.toml` are written. Unverified locally because Docker
-  is not installed here, so it validates on first remote build.
+- **Live, static only:** the landing page is served by GitHub Pages at
+  https://parama-guru.github.io/Solari/. No API sits behind it, so the drop zone shows how
+  to run the playground locally instead. The never-deployed `fly.toml` was removed; the
+  `Dockerfile` stays for anyone hosting the full server, still unverified because Docker
+  is not installed here.
 - **Deliberate tradeoff:** a public upload form runs on *our* API key, so strangers would
   consume our credits and occupy the single free-tier VM slot. Needs rate limiting and a
   paid plan before it is safe to publish.
