@@ -183,7 +183,7 @@ export function createApp(deps: AppDependencies): Server {
       sendJson(res, 404, { error: 'Unknown sample.' });
       return;
     }
-    // `samples/` ships with the repo; `fixtures/` is generated and gitignored.
+    // `samples/` also ships in the package and the image; `fixtures/` only in a repo checkout.
     for (const dir of ['samples', 'fixtures']) {
       try {
         const bytes = readFileSync(join(process.cwd(), dir, name));

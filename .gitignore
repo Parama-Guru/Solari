@@ -7,4 +7,3 @@ dist/
 *.tgz
 .tmp/
 work/
-fixtures/

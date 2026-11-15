@@ -40,7 +40,7 @@ to build once:
 
 ```bash
 npm run provision         # prints SOLARI_TEMPLATE=tpl_...
-npm run fixtures          # generates the corpus on a live machine
+npm run fixtures          # optional: regenerates the committed corpus on a live machine
 npm run e2e               # recovers all 17, prints the timing profile
 ```
 
@@ -63,7 +63,8 @@ stay out of the unit suite.
    first and end in a fallback.
 3. Generate a real fixture in `src/scripts/make-fixtures.ts`. Do not hand-craft one, and do
    not trust the converter's exit code: verify the file is what you asked for. LibreOffice
-   will quietly ignore a requested filter and write something else.
+   will quietly ignore a requested filter and write something else. Commit the new file in
+   `fixtures/` so the corpus stays reproducible without a live account.
 4. Run `npm run e2e` and **look at the page image**.
 
 ## Leaving a machine running

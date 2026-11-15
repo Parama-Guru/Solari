@@ -1,0 +1,3 @@
+# Test inputs are judged byte for byte, so never rewrite their line endings on checkout.
+fixtures/** binary
+samples/** binary

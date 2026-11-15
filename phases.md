@@ -203,7 +203,8 @@ Numbers a reviewer can reproduce.
 - **Done when:** a published benchmark compares this against CloudConvert and Zamzar.
 
 ### P8.1 Improve `[ ]`
-- Publish the corpus and per-format success rates.
+- [x] Publish the corpus and per-format success rates. The 18 generated files are committed
+      in `fixtures/`, and the README lists the result for each.
 - Record a short screen capture of the corrupt-PDF recovery.
 
 ### P8.2 Issues `[ ]`
